@@ -464,8 +464,11 @@ on standard error, and `CS2METAL_TRACE=1` logs every call. A per-run log directo
 and a `cs2metal.local.toml` for the paths can follow.
 
 State: built on 27 November 2026 and tested on a stand-in installation, the `hello`
-fixture installed as `cs2`. Running the real game is an owner action, by the
-repository's agent guidelines (`AGENTS.md`).
+fixture installed as `cs2`. **Gate met the same day**
+([first engine boot](FIRST_ENGINE_BOOT_2026-11-27.md)): as a dedicated server the
+engine loads its 25 modules, loads SDL3, finishes its Source 2 initialization,
+starts loading `de_dust2`, and stops at `SteamGameServer_Init`, which looks for the
+Linux Steam client library. That is step D2.
 
 From here the work is a loop: run, read which import or behavior stopped the boot,
 implement it, commit, run again. Gate: the engine's own log shows its Steam

@@ -160,6 +160,9 @@ the T-001 counters match an independent count of `fs` prefixes in their code.
   host stack when it exits; `futex` sits on the public `os_sync_wait_on_address`
   family. Both fixtures give their Linux output, 30 runs out of 30 each.
 - [ ] Signals and synthesized `/proc`, as the engine boot needs them.
+- [x] First engine boot (roadmap step C4), on 27 November 2026: as a dedicated
+  server, through initialization and into level loading, stopping at the game
+  server's Steamworks initialization ([first boot](FIRST_ENGINE_BOOT_2026-11-27.md)).
 
 Gate: C++ fixtures that throw exceptions across modules, use threads, and read files
 pass with the guest libstdc++ and libgcc_s. Passed on 27 November 2026: all eight
