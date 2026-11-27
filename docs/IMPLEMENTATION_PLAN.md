@@ -2,7 +2,11 @@
 
 ## Status
 
-Current as of 27 November 2026. M0 is complete; M1 waits on an owner action.
+Current as of 27 November 2026. M0 is complete; the gates of M3, M4, M5, and M6
+have passed, with single items of M1, M2, M3, M5, and M6 still open below; M7's
+bridge works for the client; and the owner plays a practice match. M8's
+thirty-minute gate is the next one
+([the client, playable offline](CLIENT_PLAYABLE_2026-11-27.md)).
 
 Milestone numbers are identifiers, not the order of work. [ROADMAP.md](ROADMAP.md)
 gives the order, with the exact commands for the owner actions: the Steam and Vulkan
@@ -186,12 +190,14 @@ the dedicated server ran a map for 651 seconds.
 
 ### M5: SDL3 substitution
 
-- [ ] Window, keyboard and mouse, game controllers, and audio through a macOS SDL3.
-  On 27 November 2026 the [SDL bridge](SDL_BRIDGE.md) opens the game's window; the
-  audio stream callback, which runs on a host-only thread, is not bridged yet, and
-  input is not yet measured.
+- [x] Window, keyboard and mouse, and audio through a macOS SDL3. Done on 27
+  November 2026 through the [SDL bridge](SDL_BRIDGE.md): the owner plays a match
+  with keyboard, mouse look, and sound, and types into the game's console
+  ([the client, playable offline](CLIENT_PLAYABLE_2026-11-27.md)).
+- [ ] Game controllers and the microphone: not tried.
 
 Gate: a window opens and audio plays.
+Passed on 27 November 2026.
 
 ### M6: Vulkan on Metal
 
@@ -234,8 +240,10 @@ audio queue empty.
 - [ ] The bridged client module and the interface proxies. Built on 27 November
   2026: the dedicated server's `SteamGameServer_Init` succeeds through the owner's
   macOS client and begins its anonymous logon
-  ([first boots through the bridge](STEAM_BRIDGE_BOOT_2026-11-27.md)). Open until the
-  client boot initializes Steam with the signed-in account.
+  ([first boots through the bridge](STEAM_BRIDGE_BOOT_2026-11-27.md)). On the same
+  day the client initialized Steam with the signed-in account through the bridge
+  and reached its main menu; `SteamAPI_IsSteamRunning` answers for the macOS
+  client. Callbacks and data layouts (H-3, H-4) are not probed on their own.
 
 Gate: Steam initialization succeeds for app 730 without any change to Steam
 authentication.
@@ -244,6 +252,11 @@ authentication.
 
 Gate: thirty minutes of a local bot match on one map with no crash, launched with
 `-insecure`, and the integrity guard passing before and after.
+
+State on 27 November 2026: the owner plays practice matches on `de_dust2` with
+bots, at 50 to 80 frames per second depending on the settings, with stutters
+([the client, playable offline](CLIENT_PLAYABLE_2026-11-27.md)). The sessions were
+shorter than the gate and not timed, so the gate is not passed yet.
 
 ### M9: life after Rosetta
 

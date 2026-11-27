@@ -5,8 +5,9 @@
 Current as of 27 November 2026. This is the owner's checklist for the first session:
 seven steps that put every piece on the Mac and end with the first inventory of the
 Linux build. It covers phases A and B of the [roadmap](ROADMAP.md), which explains
-the reasons behind each step. Nothing here starts the game; the host that will run
-it is not built yet.
+the reasons behind each step. Nothing here starts the game. The host that runs it
+is built: once these steps are done, the repository's `README.md` gives the command
+that starts the game.
 
 ## Before you begin
 

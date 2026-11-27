@@ -43,6 +43,8 @@ as the code. It began as a separate repository and was merged, with its history,
 | [Steam app probe online, 27 November 2026](STEAM_APP_PROBE_ONLINE_2026-11-27.md) | H-2 holds: the connected macOS client serves app 730 to an x86-64 process and answers for the account's licence. Gate 0 passes. |
 | [The libc bake-off, 27 November 2026](LIBC_BAKEOFF_2026-11-27.md) | Route B ruled out (a trapped system call costs about 34 µs under Rosetta); route C sends 970 of 975 glibc system call sites through one slot with 20 source lines; route A means 682 functions, about 430 crossing or stateful. |
 | [The first engine boot under cs2metal, 27 November 2026](FIRST_ENGINE_BOOT_2026-11-27.md) | As a dedicated server the engine loads 25 modules and SDL3, finishes its Source 2 initialization, starts loading de_dust2, and stops at SteamGameServer_Init: the C4 gate is met, and the Steam bridge is next. |
+| [The client's first frames, 27 November 2026](CLIENT_FIRST_FRAMES_2026-11-27.md) | The renderer presents the main menu and a match once `gettimeofday`, the audio callback's contract, and null descriptor sets are right; the roadmap's gate is met. |
+| [The client, playable offline, 27 November 2026](CLIENT_PLAYABLE_2026-11-27.md) | The owner plays a practice match with keyboard, mouse, and sound at 50 to 80 frames per second; what was fixed for input, the pacing measured, and what stays open. |
 | [Route and effort review, 27 November 2026](ROUTE_AND_EFFORT_REVIEW_2026-11-27.md) | Owner-requested assessment of the chosen route, its technical gates, alternative libc strategies, Native VIctory reuse, and realistic effort. |
 
 ## Backlog

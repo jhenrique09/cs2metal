@@ -2,9 +2,11 @@
 
 ## Status
 
-Current as of 27 November 2026. This is the ordered, step-by-step path from an empty
-Mac to the first frame the game presents in its own window (its startup screen). It
-says who does each step, what exists today, and what must still be built.
+Current as of 27 November 2026. **The roadmap's goal is met**: the game presents in
+its own window, and beyond the first frame the owner plays a practice match
+([the client, playable offline](CLIENT_PLAYABLE_2026-11-27.md)). This is the
+ordered, step-by-step path from an empty Mac to that first frame. It says who does
+each step, what exists, and what had to be built.
 [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) stays the ledger of milestones and
 evidence; this document is the order of work. Update a step's state in the commit
 that changes it.
@@ -19,15 +21,17 @@ that changes it.
 | Code scan, `cs2metal tls scan` | Done; validated on public runtime libraries |
 | Rosetta facts: no `fs` base, GS swap works | Measured ([probe](ROSETTA_SEGMENT_PROBE_2026-11-26.md)) |
 | Vulkan needs against both drivers, from public data | Researched ([report](VULKAN_REQUIREMENTS_RESEARCH_2026-11-27.md)) |
-| Steam bridge | Designed, unproven ([design](STEAM_BRIDGE_DESIGN.md)) |
-| The Linux build on this Mac | **Not downloaded** |
-| Steam for macOS, steamcmd, the sniper C++ runtime on this Mac | Installed (A2, A3, A5); Steam not yet signed in |
+| Steam bridge | Built; the client signs in through the owner's macOS Steam ([design](STEAM_BRIDGE_DESIGN.md)) |
+| The Linux build, Steam for macOS, steamcmd, the sniper C++ runtime, the Vulkan SDK on this Mac | Installed (phase A) |
 | Steam client library usable from an x86-64 process (H-1) | Confirmed ([probe](STEAM_CLIENT_PROBE_2026-11-27.md)) |
-| Vulkan SDK on this Mac | **Not installed** |
-| Loader, glibc layer, bridge, `cs2metal run` | **Not built** |
+| Loader, rebuilt glibc, system call layer, `cs2metal run` | Built (phase C) |
+| SDL bridge: window, keyboard, mouse, sound | Built; gate met ([SDL bridge](SDL_BRIDGE.md)) |
+| Vulkan bridge on MoltenVK | Built; the renderer presents ([Vulkan bridge](VULKAN_BRIDGE.md)) |
+| The game | Main menu and a practice match with bots, offline with `-insecure` ([record](CLIENT_PLAYABLE_2026-11-27.md)) |
 
-The game does not start today. Phases A and B can be done today; phases C to F are
-the engineering.
+The game starts today and the owner plays a practice match. What follows the
+roadmap is the implementation plan's M8: thirty minutes of a local bot match
+without a crash, and then the stutters.
 
 ## The path at a glance
 
@@ -615,8 +619,9 @@ events taken off the main thread.
 
 ## After the first frame
 
-The main menu, a local bot match (`-insecure`), audio, and performance work follow in
-milestones M5 to M8 of the implementation plan. The project stays on Rosetta, as a
+The main menu, a local bot match (`-insecure`), and audio followed on the same day
+([the client, playable offline](CLIENT_PLAYABLE_2026-11-27.md)). M8's thirty-minute
+match and performance work come next, in the implementation plan. The project stays on Rosetta, as a
 research prototype, by the [Rosetta horizon decision](ROSETTA_HORIZON_DECISION.md).
 
 ## Critical path and parallel work
