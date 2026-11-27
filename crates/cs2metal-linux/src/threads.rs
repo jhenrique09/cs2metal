@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use cs2metal_loader::{HostBlock, SyscallFrame, attach, leave_guest_thread, run_guest_thread};
 
 use crate::syscall::BLOCK;
-use crate::translate::{EAGAIN, EINVAL, ENOSYS, ETIMEDOUT, result};
+use crate::translate::{EAGAIN, EFAULT, EINVAL, ENOSYS, ETIMEDOUT};
 
 const CLONE_VM: u64 = 0x100;
 const CLONE_THREAD: u64 = 0x10000;
@@ -56,19 +56,23 @@ pub(crate) fn set_tid_address(ptr: u64) -> i64 {
 }
 
 unsafe extern "C" {
-    fn os_sync_wait_on_address(addr: *mut libc::c_void, value: u64, size: usize, flags: u32)
-    -> i32;
-    fn os_sync_wait_on_address_with_timeout(
+    /// The kernel's wait and wake on an address, which `os_sync_wait_on_address`
+    /// and `os_sync_wake_by_address_any` are made of. With `ULF_NO_ERRNO` they
+    /// return a negated error and leave `errno`, which is thread data, alone.
+    fn __ulock_wait2(
+        operation: u32,
         addr: *mut libc::c_void,
         value: u64,
-        size: usize,
-        flags: u32,
-        clock: u32,
         timeout_ns: u64,
-    ) -> i32;
-    fn os_sync_wake_by_address_any(addr: *mut libc::c_void, size: usize, flags: u32) -> i32;
-    fn os_sync_wake_by_address_all(addr: *mut libc::c_void, size: usize, flags: u32) -> i32;
+        value2: u64,
+    ) -> libc::c_int;
+    fn __ulock_wake(operation: u32, addr: *mut libc::c_void, wake_value: u64) -> libc::c_int;
 }
+
+/// `UL_COMPARE_AND_WAIT`: compare a 32-bit word and sleep, in one step.
+const UL_COMPARE_AND_WAIT: u32 = 1;
+const ULF_WAKE_ALL: u32 = 0x100;
+const ULF_NO_ERRNO: u32 = 0x0100_0000;
 
 unsafe extern "C" {
     fn pthread_attr_set_qos_class_np(
@@ -115,25 +119,24 @@ unsafe fn raise(attr: &mut libc::pthread_attr_t) {
     }
 }
 
-/// `OS_CLOCK_MACH_ABSOLUTE_TIME`.
-const OS_CLOCK_MACH_ABSOLUTE_TIME: u32 = 32;
-
+/// Wakes one waiter on the word at `addr`, or all of them for a count above one.
+/// Neutral.
 fn wake(addr: u64, count: u64) -> i64 {
     if addr == 0 {
         return EINVAL;
     }
-    let p = addr as *mut libc::c_void;
+    let all = if count > 1 { ULF_WAKE_ALL } else { 0 };
     // SAFETY: the guest names a 32-bit futex word in its own memory; waking has no
     // effect on it.
     let status = unsafe {
-        if count > 1 {
-            os_sync_wake_by_address_all(p, 4, 0)
-        } else {
-            os_sync_wake_by_address_any(p, 4, 0)
-        }
+        __ulock_wake(
+            UL_COMPARE_AND_WAIT | ULF_NO_ERRNO | all,
+            addr as *mut libc::c_void,
+            0,
+        )
     };
-    // Linux returns the number woken; glibc only tests for errors. ENOENT from
-    // the host means nobody was waiting.
+    // Linux returns the number woken; glibc only tests for errors. A negated
+    // ENOENT from the host means nobody was waiting.
     if status == 0 { 1 } else { 0 }
 }
 
@@ -152,22 +155,37 @@ unsafe fn nanos(ts: u64) -> u64 {
 
 /// `futex(addr, op, val, timeout, addr2, val3)`.
 pub(crate) fn futex(addr: u64, op: u64, val: u64, timeout: u64, _addr2: u64, _val3: u64) -> i64 {
+    futex_neutral(addr, op, val, timeout).unwrap_or_else(|| {
+        unsupported_futex(op & 0x7f);
+        ENOSYS
+    })
+}
+
+/// The futex operations the host answers, or `None` for another. Neutral: it
+/// runs in either domain, so the system call entry's fast path answers a futex
+/// call with it, without a GS switch, and the host handler with the same code.
+pub(crate) fn futex_neutral(addr: u64, op: u64, val: u64, timeout: u64) -> Option<i64> {
     const WAIT: u64 = 0;
     const WAKE: u64 = 1;
     const WAIT_BITSET: u64 = 9;
     const WAKE_BITSET: u64 = 10;
     const CLOCK_REALTIME: u64 = 256;
+    /// Linux's EINTR; the host's ETIMEDOUT, EINTR, and EFAULT.
+    const EINTR: i64 = -4;
+    const HOST_ETIMEDOUT: i32 = 60;
+    const HOST_EINTR: i32 = 4;
+    const HOST_EFAULT: i32 = 14;
     let cmd = op & 0x7f;
-    match cmd {
+    Some(match cmd {
         WAKE | WAKE_BITSET => wake(addr, val),
         WAIT | WAIT_BITSET => {
             if addr == 0 {
-                return EINVAL;
+                return Some(EINVAL);
             }
             // SAFETY: the guest names a 32-bit futex word in its own memory.
             let current = unsafe { std::ptr::read_volatile(addr as *const u32) };
             if current != val as u32 {
-                return EAGAIN;
+                return Some(EAGAIN);
             }
             // WAIT takes a relative timeout; WAIT_BITSET an absolute one, on
             // CLOCK_MONOTONIC unless FUTEX_CLOCK_REALTIME.
@@ -187,40 +205,34 @@ pub(crate) fn futex(addr: u64, op: u64, val: u64, timeout: u64, _addr2: u64, _va
                     t.saturating_sub(crate::clock::now_ns(clock).unwrap_or(0))
                 }
             });
-            let p = addr as *mut libc::c_void;
+            // A timeout of zero nanoseconds means "for ever" to the host.
+            let timeout_ns = match relative {
+                None => 0,
+                Some(0) => return Some(ETIMEDOUT),
+                Some(ns) => ns,
+            };
             // SAFETY: as above; the host compares and sleeps atomically.
             let status = unsafe {
-                match relative {
-                    None => os_sync_wait_on_address(p, val & 0xffff_ffff, 4, 0),
-                    Some(0) => return ETIMEDOUT,
-                    Some(ns) => os_sync_wait_on_address_with_timeout(
-                        p,
-                        val & 0xffff_ffff,
-                        4,
-                        0,
-                        OS_CLOCK_MACH_ABSOLUTE_TIME,
-                        ns,
-                    ),
-                }
+                __ulock_wait2(
+                    UL_COMPARE_AND_WAIT | ULF_NO_ERRNO,
+                    addr as *mut libc::c_void,
+                    val & 0xffff_ffff,
+                    timeout_ns,
+                    0,
+                )
             };
-            if status >= 0 {
-                0
-            } else {
-                let error = std::io::Error::last_os_error().raw_os_error().unwrap_or(0);
-                if error == libc::ETIMEDOUT {
-                    ETIMEDOUT
-                } else if error == libc::EINTR || error == libc::EFAULT {
-                    result(-1)
-                } else {
-                    0
-                }
+            match -status {
+                _ if status >= 0 => 0,
+                HOST_ETIMEDOUT => ETIMEDOUT,
+                HOST_EINTR => EINTR,
+                HOST_EFAULT => EFAULT,
+                // Anything else ends the wait as a wake does: the guest looks at
+                // its word again.
+                _ => 0,
             }
         }
-        _ => {
-            unsupported_futex(cmd);
-            ENOSYS
-        }
-    }
+        _ => return None,
+    })
 }
 
 // --- The futex trace ---------------------------------------------------------------

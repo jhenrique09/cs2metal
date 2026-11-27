@@ -122,7 +122,8 @@ with its decision record and the counter the host logs at load time.
   the host domain for the call and back on return. A *neutral* function touches no
   macOS thread data and is called directly: it reads nothing through GS, takes no
   lock of libSystem, allocates nothing, and cannot panic. The neutral functions
-  are `__tls_get_addr`, `__stack_chk_fail`, and the clocks behind the vDSO. That a
+  are `__tls_get_addr`, `__stack_chk_fail`, the clocks behind the vDSO, and the
+  system call entry's fast handler. That a
   function is neutral is tested, not assumed: `probe_neutral` runs it with GS at
   a block of poison words, which following stops the process and writing is
   reported.
@@ -141,6 +142,15 @@ It keeps a standard frame record (the guest's `rbp` under the return address), s
 host stack sample of a thread inside a system call continues into the guest code
 that made it.
 
+Before it switches, the entry asks a *fast handler*, in the guest's domain. The
+calls that need none of the host's thread data are answered there, with no GS
+switch: `futex` wait and wake, which go straight to the kernel (one trap where
+there were three), `sched_yield`, and `clock_gettime`, `gettimeofday`, and `time`
+for a caller that does not go through the vDSO. The handler is neutral code,
+tested with GS at a block of poison words on its error paths too. It declines
+whatever needs more, and every call while `CS2METAL_TRACE` or
+`CS2METAL_FUTEX_TRACE` is on; `CS2METAL_NO_FAST_SYSCALLS=1` turns it off.
+
 - Numbers, flags, structures, and errno values are Linux's on the guest side and are
   translated at the boundary: `stat`, `dirent64`, `sigaction`, socket addresses,
   `open`, `mmap`, and `fcntl` flags, signal numbers.
@@ -148,8 +158,9 @@ that made it.
   thread's control block. Every guest thread, the main one too, asks macOS for
   the user-interactive class, which keeps it on the performance cores ahead of
   background work and its timers exact (`CS2METAL_NO_QOS=1` leaves them as macOS
-  makes them); `futex` becomes `os_sync_wait_on_address` and
-  `os_sync_wake_by_address`;
+  makes them); `futex` becomes the kernel's wait and wake on an address (`__ulock_wait2`
+  and `__ulock_wake`, what `os_sync_wait_on_address` is made of), asked not to
+  set `errno`, so that it is neutral;
   `set_robust_list` and `rseq` are recorded or declined as glibc tolerates.
   `CS2METAL_FUTEX_TRACE=<seconds>` reports, at that period, each wait parked for two
   seconds or more (its word, the value waited against and the value held now, and

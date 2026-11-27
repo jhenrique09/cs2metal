@@ -29,7 +29,7 @@ const VERSION: &str = "LINUX_2.6";
 const ENOSYS: i64 = -38;
 
 /// `__vdso_clock_gettime(clock, timespec)`. Neutral.
-extern "C" fn clock_gettime(id: i32, out: u64) -> i64 {
+pub(crate) extern "C" fn clock_gettime(id: i32, out: u64) -> i64 {
     match clock::now_ns(u64::from(id as u32)) {
         Some(ns) if out != 0 => {
             // SAFETY: the guest passes a struct timespec.
@@ -42,7 +42,7 @@ extern "C" fn clock_gettime(id: i32, out: u64) -> i64 {
 }
 
 /// `__vdso_gettimeofday(timeval, timezone)`. Neutral.
-extern "C" fn gettimeofday(tv: u64, tz: u64) -> i64 {
+pub(crate) extern "C" fn gettimeofday(tv: u64, tz: u64) -> i64 {
     let ns = clock::now_ns(clock::REALTIME).unwrap_or(0);
     if tv != 0 {
         // SAFETY: the guest passes a Linux struct timeval, two 64-bit words.
@@ -64,7 +64,7 @@ extern "C" fn gettimeofday(tv: u64, tz: u64) -> i64 {
 }
 
 /// `__vdso_time(time_t *)`. Neutral.
-extern "C" fn time(out: u64) -> i64 {
+pub(crate) extern "C" fn time(out: u64) -> i64 {
     let seconds = (clock::now_ns(clock::REALTIME).unwrap_or(0) / clock::NANOS) as i64;
     if out != 0 {
         // SAFETY: the guest passes a time_t.

@@ -12,6 +12,7 @@ mod black_movie;
 mod brk;
 mod clock;
 mod epoll;
+mod fast;
 // Guest code runs only in an x86-64 process; elsewhere the report is not installed.
 #[cfg_attr(not(target_arch = "x86_64"), allow(dead_code))]
 mod fault;
@@ -245,6 +246,7 @@ pub fn exec(launch: &Launch) -> Result<Infallible, Error> {
     threads::raise_this_thread();
     syscall::raise_open_files();
     set_syscall_handler(syscall::handle);
+    fast::start();
 
     // ld.so runs as the program and loads the real one: ld.so --library-path
     // DIRS PROGRAM ARGS.

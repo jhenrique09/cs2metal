@@ -6,7 +6,7 @@
 
 use std::sync::Mutex;
 
-use cs2metal_loader::{Namespace, SyscallFrame, set_syscall_handler};
+use cs2metal_loader::{Namespace, SyscallFrame, set_fast_syscall_handler, set_syscall_handler};
 
 /// What the handler saw.
 #[derive(Clone, Copy)]
@@ -83,8 +83,9 @@ const CMP: [[u8; 3]; 6] = [
     [0x49, 0x81, 0xf9],
 ];
 
-/// The guest code, and the offset of the instruction after its system call.
-fn guest_code() -> (Vec<u8>, usize) {
+/// The guest code for system call `number`, and the offset of the instruction
+/// after its system call.
+fn guest_code(number: u32) -> (Vec<u8>, usize) {
     let mut c = vec![0x55, 0x53]; // push rbp; push rbx
     c.extend([0x48, 0xc7, 0xc5]); // mov rbp, imm32
     c.extend(RBP.to_le_bytes());
@@ -94,7 +95,8 @@ fn guest_code() -> (Vec<u8>, usize) {
         c.extend(op);
         c.extend((value as u32).to_le_bytes());
     }
-    c.extend([0xb8, 39, 0, 0, 0]); // mov eax, 39 (getpid)
+    c.push(0xb8); // mov eax, number
+    c.extend(number.to_le_bytes());
     c.extend([0x48, 0x8d, 0x64, 0x24, 0x80]); // lea rsp, [rsp - 128]
     c.extend([0x65, 0xff, 0x14, 0x25, 0x20, 0, 0, 0]); // call qword ptr gs:[0x20]
     let resume = c.len();
@@ -122,12 +124,37 @@ fn guest_code() -> (Vec<u8>, usize) {
     (c, resume)
 }
 
-#[test]
-fn a_guest_system_call_reaches_the_handler_and_preserves_registers() {
-    set_syscall_handler(handler);
-    let (code, resume) = guest_code();
+/// The number the fast handler answers; it declines every other.
+const FAST: u32 = 777;
+
+/// What the fast handler saw: the calls it answered, and the word at `gs:0x10`,
+/// which in the guest domain is the guest's own thread pointer.
+static FAST_SEEN: Mutex<(u32, u64)> = Mutex::new((0, 0));
+
+extern "C" fn fast_handler(frame: &mut SyscallFrame) -> bool {
+    if frame.number != u64::from(FAST) {
+        return false;
+    }
+    let word: u64;
+    // SAFETY: reads a word of the block GS points at, whichever domain this is.
+    unsafe {
+        core::arch::asm!(
+            "mov {w}, qword ptr gs:[0x10]",
+            w = out(reg) word,
+            options(nostack, readonly, preserves_flags),
+        );
+    }
+    if let Ok(mut seen) = FAST_SEEN.lock() {
+        *seen = (seen.0 + 1, word);
+    }
+    frame.number = frame.arg0 + frame.arg5;
+    true
+}
+
+/// Maps `code` as guest code and returns its address.
+fn map_code(code: &[u8]) -> u64 {
     // SAFETY: a fresh anonymous mapping, written before it is made executable.
-    let page = unsafe {
+    unsafe {
         let p = libc::mmap(
             std::ptr::null_mut(),
             4096,
@@ -143,7 +170,15 @@ fn a_guest_system_call_reaches_the_handler_and_preserves_registers() {
             0
         );
         p as u64
-    };
+    }
+}
+
+#[test]
+fn a_guest_system_call_reaches_the_handler_and_preserves_registers() {
+    set_syscall_handler(handler);
+    set_fast_syscall_handler(fast_handler);
+    let (code, resume) = guest_code(39);
+    let page = map_code(&code);
     let thread = Namespace::new().thread().expect("guest thread");
     // SAFETY: the code above takes no arguments and returns in rax.
     let result = unsafe { thread.call(page, &[]) }.expect("call");
@@ -164,5 +199,27 @@ fn a_guest_system_call_reaches_the_handler_and_preserves_registers() {
     assert!(
         seen.linked,
         "the handler's frame pointers lead to the entry's frame record"
+    );
+}
+
+/// A call the fast handler answers never leaves the guest domain: the handler
+/// runs with GS at the guest's control block, the host handler is not asked, and
+/// every register a `syscall` preserves survives just the same.
+#[test]
+fn a_call_the_fast_handler_answers_makes_no_gs_switch() {
+    set_syscall_handler(handler);
+    set_fast_syscall_handler(fast_handler);
+    let (code, _) = guest_code(FAST);
+    let page = map_code(&code);
+    let thread = Namespace::new().thread().expect("guest thread");
+    // SAFETY: the code takes no arguments and returns in rax.
+    let result = unsafe { thread.call(page, &[]) }.expect("call");
+    assert_eq!(result, 0x1111 + 0x6666, "the fast handler's result");
+    let (calls, word) = *FAST_SEEN.lock().expect("lock");
+    assert_eq!(calls, 1);
+    assert_eq!(
+        word,
+        thread.thread_pointer(),
+        "GS was at the guest's control block"
     );
 }

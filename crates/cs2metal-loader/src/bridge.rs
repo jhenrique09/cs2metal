@@ -92,7 +92,18 @@ pub struct SyscallFrame {
 /// negative errno for a failure, as on Linux.
 pub type SyscallHandler = extern "C" fn(&mut SyscallFrame) -> u64;
 
+/// Answers a guest system call in the guest domain, without a GS switch, or
+/// declines it. It writes the result to `frame.number`, the word the entry gives
+/// back in `rax`, and returns true; false sends the call on to the
+/// [`SyscallHandler`], in the host domain.
+///
+/// It runs with GS at the guest's control block, so it must be neutral: no
+/// thread-local storage, no `errno`, no lock or allocation of libSystem, no
+/// panic. [`probe_neutral`] shows whether code is.
+pub type FastSyscallHandler = extern "C" fn(&mut SyscallFrame) -> bool;
+
 static HANDLER: AtomicU64 = AtomicU64::new(0);
+static FAST_HANDLER: AtomicU64 = AtomicU64::new(0);
 static FIXUP: AtomicU64 = AtomicU64::new(0);
 
 /// Rewrites what a host function returns before the guest sees it, in the host
@@ -159,6 +170,24 @@ extern "C" fn foreign_callback(target: u64) -> ! {
 /// Installs the handler every guest system call reaches.
 pub fn set_syscall_handler(handler: SyscallHandler) {
     HANDLER.store(handler as *const () as u64, Ordering::Release);
+}
+
+/// Installs the handler the system call entry asks first, in the guest domain.
+pub fn set_fast_syscall_handler(handler: FastSyscallHandler) {
+    FAST_HANDLER.store(handler as *const () as u64, Ordering::Release);
+}
+
+/// Called by the system call entry before any GS switch, in the guest domain.
+/// Neutral: it reads one atomic and calls the registered handler.
+#[cfg_attr(not(target_arch = "x86_64"), allow(dead_code))]
+extern "C" fn dispatch_fast(frame: &mut SyscallFrame) -> bool {
+    let handler = FAST_HANDLER.load(Ordering::Acquire);
+    if handler == 0 {
+        return false;
+    }
+    // SAFETY: only set_fast_syscall_handler stores here, from a FastSyscallHandler.
+    let handler: FastSyscallHandler = unsafe { std::mem::transmute(handler as usize) };
+    handler(frame)
 }
 
 /// Called by the system call entry, in the host domain.
@@ -350,6 +379,9 @@ mod imp {
     // the arguments. Like `syscall`, it changes only rax (the result), rcx, and r11;
     // the x87, MMX, and SSE state is saved with fxsave around the host code.
     //
+    // The fast handler is asked first, with GS still at the guest's block. A
+    // call it answers costs no GS switch; one it declines goes on as before.
+    //
     // rbp is pushed first and then points at its own saved value, under the
     // return address: a standard frame record, so that a debugger or `sample`
     // walks from the host code answering the call into the guest code that made
@@ -368,21 +400,26 @@ mod imp {
         "push r8",
         "push r9",
         "push rax",
+        "sub rsp, 576",
+        "and rsp, -64",
+        "fxsave64 [rsp]",
+        "lea rdi, [rbp - {below}]",
+        "call {fast}",
+        "test al, al",
+        "jnz 2f",
         "mov rbx, qword ptr gs:[{block}]",
         "mov rdi, qword ptr [rbx + {tsd}]",
         "mov eax, 0x3000003",
         "syscall",
         "lea rdi, [rbp - {below}]",
-        "sub rsp, 576",
-        "and rsp, -64",
-        "fxsave64 [rsp]",
         "call {dispatch}",
         "mov qword ptr [rbp - {below}], rax",
-        "fxrstor64 [rsp]",
-        "lea rsp, [rbp - {below}]",
         "mov rdi, qword ptr [rbx + {guest}]",
         "mov eax, 0x3000003",
         "syscall",
+        "2:",
+        "fxrstor64 [rsp]",
+        "lea rsp, [rbp - {below}]",
         "pop rax",
         "pop r9",
         "pop r8",
@@ -398,6 +435,7 @@ mod imp {
         guest = const host::GUEST_TP,
         below = const core::mem::offset_of!(super::SyscallFrame, saved_rbp),
         dispatch = sym super::dispatch,
+        fast = sym super::dispatch_fast,
     );
 
     // A guest thread made by clone: saves the host's callee-saved registers and
