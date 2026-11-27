@@ -31,7 +31,8 @@ What is known about the risk, as told to the owner before the decision:
 
 ## Decision
 
-`tools/launch.sh` accepts `-online`. With it the launcher does not pass `-insecure`;
+`tools/launch.sh` accepts `-online`, and `tools/launch-online.sh` is that launcher
+with the option already given. With it the launcher does not pass `-insecure`;
 nothing else about the launch changes, and the installation is still verified
 against its baseline first. Without it the launcher passes `-insecure`, as before.
 The option is the launcher's own and does not reach the engine.
