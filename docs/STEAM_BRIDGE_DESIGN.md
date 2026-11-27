@@ -7,6 +7,11 @@ accepted when probes H-1 and H-2 below pass against the owner's Steam client; un
 then it is the plan of record for milestone M7 of the
 [implementation plan](IMPLEMENTATION_PLAN.md).
 
+H-1 passed on 27 November 2026. H-2 passed its platform half the same day: the
+client initializes the API for an x86-64 process declaring app 730 and answers
+ownership. Its online half waits for a run with the client connected
+([Steam app probe](STEAM_APP_PROBE_2026-11-27.md)).
+
 ## Question
 
 The Linux build of CS2 expects a Linux Steam client. On a Mac only the macOS Steam
