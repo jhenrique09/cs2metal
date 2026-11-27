@@ -49,6 +49,8 @@ names the call.
 | `SDL_AddEventWatch`, `SDL_RemoveEventWatch` | The watch is guest code, called the same way; events pushed on host-only threads skip it |
 | `SDL_SetClipboardData` | Its callbacks are guest code, called on the guest's main thread |
 | `SDL_OpenAudioDeviceStream`, `SDL_DestroyAudioStream` | A stream callback would run on host SDL's audio thread, which runs no guest thread, and running it on another thread while SDL holds the stream's lock would deadlock. The stream opens without it; a guest thread the shim starts asks the host for each call to make, and the host hands it one whenever a playback stream's queue falls below 40 ms, or a recording stream has data, as SDL's device thread would |
+| `SDL_MinimizeWindow` | Not done. The game minimizes its window when it loses the focus, and a process started from a terminal starts without it; on macOS a minimized window has no drawable, so the window went to the Dock at once and stayed there. `SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS` is also set to 0 in the host environment |
+| `SDL_CreateWindowWithProperties` | The window is raised once made, since the process does not come to the front by itself |
 | `SDL_IOFromFile` | A Linux path: it goes through the installation overlay |
 | `SDL_Vulkan_LoadLibrary` | The game would name its Linux loader. Host SDL loads the macOS Vulkan loader, by default the newest Vulkan SDK's, which finds MoltenVK through the SDK's driver manifest unless `VK_DRIVER_FILES` is set |
 

@@ -359,6 +359,37 @@ pub(crate) fn next_callback(out: u64) -> i64 {
     }
 }
 
+// --- Windows -----------------------------------------------------------------------
+
+/// `SDL_MinimizeWindow(window)`: not done. The game minimizes its window when it
+/// loses the focus, as a Linux game may; a process started from a terminal starts
+/// without the focus, so the window went to the Dock at once. On macOS a minimized
+/// window has no drawable, and the renderer then stops on it.
+extern "C" fn minimize_window(_window: u64) -> bool {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| eprintln!("cs2metal: the game asked to minimize its window; kept up"));
+    true
+}
+
+/// `SDL_CreateWindowWithProperties(props)`: the window, raised and given the focus,
+/// since the process does not come to the front by itself.
+extern "C" fn create_window_with_properties(props: u32) -> u64 {
+    let f = real("SDL_CreateWindowWithProperties");
+    if f == 0 {
+        return 0;
+    }
+    // SAFETY: the host library's SDL_CreateWindowWithProperties.
+    let f: extern "C" fn(u32) -> u64 = unsafe { std::mem::transmute(f) };
+    let window = f(props);
+    let raise = real("SDL_RaiseWindow");
+    if window != 0 && raise != 0 {
+        // SAFETY: the host library's SDL_RaiseWindow, on the window just made.
+        let raise: extern "C" fn(u64) -> bool = unsafe { std::mem::transmute(raise) };
+        raise(window);
+    }
+    window
+}
+
 // --- Paths -------------------------------------------------------------------------
 
 /// `SDL_IOFromFile(file, mode)`: the guest's path, through the installation
@@ -455,6 +486,8 @@ fn wrapper(name: &[u8]) -> Option<u64> {
         b"SDL_SetClipboardData" => set_clipboard_data as *const (),
         b"SDL_OpenAudioDeviceStream" => open_audio_device_stream as *const (),
         b"SDL_DestroyAudioStream" => destroy_audio_stream as *const (),
+        b"SDL_MinimizeWindow" => minimize_window as *const (),
+        b"SDL_CreateWindowWithProperties" => create_window_with_properties as *const (),
         b"SDL_IOFromFile" => io_from_file as *const (),
         b"SDL_Vulkan_LoadLibrary" => vulkan_load_library as *const (),
         _ => return None,
@@ -595,6 +628,8 @@ mod tests {
             "SDL_DestroyAudioStream",
             "SDL_IOFromFile",
             "SDL_Vulkan_LoadLibrary",
+            "SDL_MinimizeWindow",
+            "SDL_CreateWindowWithProperties",
         ] {
             assert!(wrapper(name.as_bytes()).is_some(), "{name}");
         }
