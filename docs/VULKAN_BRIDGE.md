@@ -59,9 +59,16 @@ measured yet.
 `CS2METAL_SHADER_TRACE=1` asks MoltenVK for its performance tracking: every
 3000 frames it reports, for each step of making a pipeline (SPIR-V to Metal's
 shading language, that to a Metal library, a function from the library, the
-pipeline state), how many it did and how long they took. `run.sh` adds the game's
-own `vulkan_pipeline_compile_spew` to the launch, which names each pipeline as it
-is compiled, so a stall can be set beside what was compiled in it.
+pipeline state), how many it did and how long they took, and the same for
+encoding command buffers, the GPU's execution of them, and presents. The host
+sets MoltenVK's log level to info for it, since the SDK's build says nothing
+below a warning by default. On a map loaded for the first time (client boot 88
+of 27 November 2026, two minutes on `de_nuke`), Metal's compiler turning its
+shading language into libraries took 16.4 s of the 20.6 s spent making
+pipelines, the pipeline states 3.8 s, and the translation of SPIR-V 0.7 s: the
+game's own pipeline cache handed MoltenVK 1,286 shaders already translated, and
+133 were translated anew. The game's own `vulkan_pipeline_compile_spew` was
+tried beside it and writes nothing to the console log in this build.
 `CS2METAL_VULKAN_HIDE`, a comma-separated list of device extension names, removes
 them from what `vkEnumerateDeviceExtensionProperties` reports to the game, to test
 whether the renderer works better without one, such as `VK_KHR_present_wait`.

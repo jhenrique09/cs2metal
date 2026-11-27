@@ -246,7 +246,7 @@ reports goes to standard error, which `run.sh` writes to the session's log.
 | `CS2METAL_STACKS=<seconds>` | At that period: where every guest thread is, with its registers |
 | `CS2METAL_SDL_TRACE=1` | The events the game takes, its input and audio calls, the guest code that made them, and each event pump or event read of 3 ms or more with what took the time ([SDL bridge](SDL_BRIDGE.md)) |
 | `CS2METAL_VULKAN_TRACE=1` | Counts of Vulkan calls, the pacing of presents every ten seconds, and each gap of a quarter second or more ([Vulkan bridge](VULKAN_BRIDGE.md)) |
-| `CS2METAL_SHADER_TRACE=1` | MoltenVK's own timings of each step of making a pipeline, every 3000 frames; `run.sh` also asks the game to name each pipeline it compiles ([Vulkan bridge](VULKAN_BRIDGE.md)) |
+| `CS2METAL_SHADER_TRACE=1` | MoltenVK's own timings of each step of making a pipeline, of encoding command buffers, and of the GPU, every 3000 frames ([Vulkan bridge](VULKAN_BRIDGE.md)) |
 | `CS2METAL_STEAM_TRACE=1` | The Steam client interfaces the game asks for, by version ([Steam bridge](STEAM_BRIDGE_DESIGN.md)) |
 
 Always on:

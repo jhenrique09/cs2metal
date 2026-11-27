@@ -1585,6 +1585,9 @@ pub(crate) fn prepare_vulkan_environment() {
     // pipeline state) and reports the counts and the times every so many frames.
     if std::env::var_os("CS2METAL_SHADER_TRACE").is_some() {
         for (name, value) in [
+            // Info: the level MoltenVK reports its timings at. The SDK's build
+            // says nothing below a warning by default.
+            ("MVK_CONFIG_LOG_LEVEL", "3"),
             ("MVK_CONFIG_PERFORMANCE_TRACKING", "1"),
             ("MVK_CONFIG_ACTIVITY_PERFORMANCE_LOGGING_STYLE", "0"),
             ("MVK_CONFIG_PERFORMANCE_LOGGING_FRAME_COUNT", "3000"),
