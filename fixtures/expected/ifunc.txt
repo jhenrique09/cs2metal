@@ -1,0 +1,4 @@
+sum = 45
+resolver ran: yes
+strlen('ifunc and glibc') = 15
+exit: 0

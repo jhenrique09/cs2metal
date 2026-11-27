@@ -1,0 +1,6 @@
+thread 0: exe=17 lib=101 tag=A
+thread 1: exe=27 lib=102 tag=B
+thread 2: exe=37 lib=103 tag=C
+thread 3: exe=47 lib=104 tag=D
+main: exe=7 lib=100 tag=initial
+exit: 0

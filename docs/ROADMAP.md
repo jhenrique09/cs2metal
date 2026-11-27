@@ -360,12 +360,21 @@ operation and BC compression ([Vulkan driver measurement](VULKAN_DRIVER_MEASUREM
 
 This is the bulk of the work, and none of it needs the game until C4.
 
-### C1. Fixtures (to build, M)
+### C1. Fixtures (exists today)
 
 Small Linux C and C++ programs written in this project, built for linux/amd64 in a
 container by a script: hello world, threads with `__thread` variables, the stack
 protector, C++ exceptions across shared objects, `dlopen`, IFUNC. They are the
 loader's test suite.
+
+```bash
+CS2METAL_BUILD_HOST=<ssh destination> tools/fixtures.sh
+```
+
+State: built on 27 November 2026. Six fixtures, nine ELF files, built in the
+Steam Runtime 3 SDK image pinned by digest on an x86-64 Debian virtual machine.
+They run natively there with their expected output, and a rebuild is byte-identical
+to the tracked checksums. Binaries are rebuilt, not tracked, by the [fixtures decision](FIXTURES_DECISION.md).
 
 ### C2. Loader, bridge, and the `fs` rewrite (to build, L)
 

@@ -1,0 +1,6 @@
+lib says: constructed before main
+parse '42' = 42
+parse '' threw invalid_argument
+parse '12x' threw runtime_error: trailing characters in '12x'
+parse 'nope' threw invalid_argument
+exit: 0

@@ -1,0 +1,5 @@
+absent library: refused
+plugin: dlopen plugin, answer(20) = 41
+absent symbol: not found
+dlclose: 0
+exit: 0

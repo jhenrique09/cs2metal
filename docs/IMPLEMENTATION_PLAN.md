@@ -102,10 +102,13 @@ and the M2 to M3 scope below is revised to match.
 
 ### M2: the loader, on the project's own fixtures
 
-- [ ] Small Linux C and C++ programs, written in this project, built for
-  linux/amd64 in a container by a script, verified by checksum. Tracking these
-  binaries needs an allowlist in the repository guard and a decision on whether
-  generated fixtures are tracked or rebuilt.
+- [x] Small Linux C and C++ programs, written in this project, built for
+  linux/amd64 in a container by a script, verified by checksum. Done on
+  27 November 2026: `fixtures/` and `tools/fixtures.sh`, six fixtures in the pinned
+  Steam Runtime 3 SDK image, expected outputs recorded from native runs, and
+  rebuilds byte-identical to `fixtures/SHA256SUMS`. Binaries are rebuilt, not
+  tracked, so the guard needs no allowlist ([fixtures decision](FIXTURES_DECISION.md)). `cs2metal tls scan`
+  agrees with `objdump` on all nine files.
 - [ ] `cs2metal-loader`: map, relocate, bind with versions, IFUNC, `COPY`, init order,
   static TLS in variant II, the GS bridge, and T-001 behind a flag.
 - [ ] Acceptance of the [TLS decision](TLS_UNDER_ROSETTA_DECISION.md): fixtures that
