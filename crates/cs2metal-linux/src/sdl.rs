@@ -327,10 +327,19 @@ extern "C" fn traced_wait_event_timeout(event: u64, timeout: i32) -> bool {
     got
 }
 
-/// `SDL_PeepEvents(events, count, action, min, max)`, traced: the events it
-/// hands out. An SDL_Event is 128 bytes.
-extern "C" fn traced_peep_events(events: u64, count: i32, action: u32, min: u32, max: u32) -> i32 {
-    let f = real("SDL_PeepEvents");
+/// `SDL_PeepEvents(events, count, action, min, max)`: the game takes its
+/// events with it, on its main thread, several times a frame. That is where
+/// the window is looked at again for [`fit_screen`], a few times a second, so
+/// that whatever way its size or border changed, the Dock and the menu bar
+/// follow. With the trace on, the events handed out are counted; an SDL_Event
+/// is 128 bytes.
+extern "C" fn peep_events(events: u64, count: i32, action: u32, min: u32, max: u32) -> i32 {
+    static REAL: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let mut f = REAL.load(std::sync::atomic::Ordering::Relaxed);
+    if f == 0 {
+        f = real("SDL_PeepEvents");
+        REAL.store(f, std::sync::atomic::Ordering::Relaxed);
+    }
     if f == 0 {
         return -1;
     }
@@ -338,6 +347,10 @@ extern "C" fn traced_peep_events(events: u64, count: i32, action: u32, min: u32,
     let f =
         unsafe { std::mem::transmute::<usize, extern "C" fn(u64, i32, u32, u32, u32) -> i32>(f) };
     let got = f(events, count, action, min, max);
+    fit_screen_in_time();
+    if !tracing() {
+        return got;
+    }
     note_focus_state();
     // SDL_ADDEVENT is 0; the other actions hand events out.
     if action != 0 && events != 0 {
@@ -897,6 +910,170 @@ extern "C" fn minimize_window(_window: u64) -> bool {
     true
 }
 
+// --- The screen ----------------------------------------------------------------------
+
+#[link(name = "objc")]
+unsafe extern "C" {
+    fn objc_getClass(name: *const c_char) -> *mut c_void;
+    fn sel_registerName(name: *const c_char) -> *mut c_void;
+    fn objc_msgSend();
+}
+
+/// `NSApplicationPresentationHideDock | NSApplicationPresentationHideMenuBar`.
+const HIDE_DOCK_AND_MENU_BAR: usize = (1 << 1) | (1 << 3);
+
+/// `[[NSApplication sharedApplication] setPresentationOptions:options]`, on the
+/// main thread only, where AppKit allows it.
+fn set_presentation(options: usize) {
+    // SAFETY: pthread_main_np has no preconditions.
+    if unsafe { libc::pthread_main_np() } == 0 {
+        return;
+    }
+    // SAFETY: the Objective-C runtime's lookups by name, and two messages with
+    // the signatures AppKit declares for them: one returns the application
+    // object, the other takes an unsigned word. Both option sets used here are
+    // ones AppKit accepts.
+    unsafe {
+        let class = objc_getClass(c"NSApplication".as_ptr());
+        if class.is_null() {
+            return;
+        }
+        let send = objc_msgSend as *const ();
+        let shared = std::mem::transmute::<
+            *const (),
+            extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void,
+        >(send);
+        let application = shared(class, sel_registerName(c"sharedApplication".as_ptr()));
+        if application.is_null() {
+            return;
+        }
+        let set =
+            std::mem::transmute::<*const (), extern "C" fn(*mut c_void, *mut c_void, usize)>(send);
+        set(
+            application,
+            sel_registerName(c"setPresentationOptions:".as_ptr()),
+            options,
+        );
+    }
+}
+
+const WINDOW_FULLSCREEN: u64 = 0x1;
+const WINDOW_HIDDEN: u64 = 0x8;
+const WINDOW_BORDERLESS: u64 = 0x10;
+const WINDOW_MINIMIZED: u64 = 0x40;
+
+/// Whether a window with these flags and this size takes its whole display: it
+/// is shown, and either SDL holds it full screen or it has no border and is as
+/// large as the display, which is the game's "full screen window".
+fn covers_display(flags: u64, size: (i32, i32), display: (i32, i32)) -> bool {
+    let borderless_and_as_large = flags & WINDOW_BORDERLESS != 0 && size.0 > 0 && size == display;
+    flags & (WINDOW_HIDDEN | WINDOW_MINIMIZED) == 0
+        && (flags & WINDOW_FULLSCREEN != 0 || borderless_and_as_large)
+}
+
+/// Whether the Dock and the menu bar are hidden for the game's window.
+static SCREEN_TAKEN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Hides the Dock and the menu bar while `window` is a borderless window that
+/// covers its display, and shows them again when it no longer is.
+///
+/// The game's "full screen window" mode makes such a window and asks SDL for
+/// nothing more. On Linux the window manager treats it as full screen. On
+/// macOS the Dock and the menu bar stay in front of it, unless the application
+/// asks for them to be hidden while it is active.
+fn fit_screen(window: u64) {
+    let (flags, size, display, bounds) = (
+        real("SDL_GetWindowFlags"),
+        real("SDL_GetWindowSize"),
+        real("SDL_GetDisplayForWindow"),
+        real("SDL_GetDisplayBounds"),
+    );
+    if window == 0 || flags == 0 || size == 0 || display == 0 || bounds == 0 {
+        return;
+    }
+    // SAFETY: the host library's functions of these names.
+    let (flags, size, display, bounds) = unsafe {
+        (
+            std::mem::transmute::<usize, extern "C" fn(u64) -> u64>(flags),
+            std::mem::transmute::<usize, extern "C" fn(u64, *mut i32, *mut i32) -> bool>(size),
+            std::mem::transmute::<usize, extern "C" fn(u64) -> u32>(display),
+            std::mem::transmute::<usize, extern "C" fn(u32, *mut [i32; 4]) -> bool>(bounds),
+        )
+    };
+    let (mut width, mut height, mut rect) = (0, 0, [0i32; 4]);
+    let known = size(window, &mut width, &mut height) && bounds(display(window), &mut rect);
+    let flags = flags(window);
+    let taken = known && covers_display(flags, (width, height), (rect[2], rect[3]));
+    if SCREEN_TAKEN.swap(taken, std::sync::atomic::Ordering::Relaxed) != taken {
+        set_presentation(if taken { HIDE_DOCK_AND_MENU_BAR } else { 0 });
+        if tracing() {
+            eprintln!(
+                "cs2metal: the Dock and the menu bar are {} for a {width}x{height} window with \
+                 flags {flags:#x} on a {}x{} display",
+                if taken { "hidden" } else { "shown" },
+                rect[2],
+                rect[3]
+            );
+        }
+    }
+}
+
+/// [`fit_screen`] for the game's window, at most four times a second.
+fn fit_screen_in_time() {
+    const EVERY_MS: u64 = 250;
+    static START: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    static NEXT_MS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let now = START
+        .get_or_init(std::time::Instant::now)
+        .elapsed()
+        .as_millis() as u64;
+    if now >= NEXT_MS.load(std::sync::atomic::Ordering::Relaxed) {
+        NEXT_MS.store(now + EVERY_MS, std::sync::atomic::Ordering::Relaxed);
+        fit_screen(WINDOW.load(std::sync::atomic::Ordering::Relaxed));
+    }
+}
+
+/// A wrapper for a host function that takes the window and up to two more
+/// integer arguments and may change the window's size, border, or state: the
+/// call, then [`fit_screen`].
+macro_rules! fitted {
+    ($wrapper:ident, $name:literal) => {
+        extern "C" fn $wrapper(window: u64, b: u64, c: u64) -> u64 {
+            let f = real($name);
+            if f == 0 {
+                return 0;
+            }
+            // SAFETY: the host library's function of that name; the ABI
+            // ignores arguments it does not take.
+            let f = unsafe { std::mem::transmute::<usize, extern "C" fn(u64, u64, u64) -> u64>(f) };
+            let result = f(window, b, c);
+            fit_screen(window);
+            result
+        }
+    };
+}
+
+fitted!(fitted_set_size, "SDL_SetWindowSize");
+fitted!(fitted_set_position, "SDL_SetWindowPosition");
+fitted!(fitted_set_bordered, "SDL_SetWindowBordered");
+fitted!(fitted_set_fullscreen, "SDL_SetWindowFullscreen");
+fitted!(fitted_set_fullscreen_mode, "SDL_SetWindowFullscreenMode");
+fitted!(fitted_sync, "SDL_SyncWindow");
+fitted!(fitted_restore, "SDL_RestoreWindow");
+
+/// `SDL_DestroyWindow(window)`: the Dock and the menu bar come back first.
+extern "C" fn destroy_window(window: u64) {
+    if SCREEN_TAKEN.swap(false, std::sync::atomic::Ordering::Relaxed) {
+        set_presentation(0);
+    }
+    let f = real("SDL_DestroyWindow");
+    if f != 0 {
+        // SAFETY: the host library's SDL_DestroyWindow.
+        let f = unsafe { std::mem::transmute::<usize, extern "C" fn(u64)>(f) };
+        f(window);
+    }
+}
+
 /// The window property the game's tier-0 module reads as a window's operating
 /// system handle, unless SDL's video driver is Wayland.
 const X11_WINDOW: &CStr = c"SDL.window.x11.window";
@@ -956,6 +1133,7 @@ extern "C" fn create_window_with_properties(props: u32) -> u64 {
         let raise: extern "C" fn(u64) -> bool = unsafe { std::mem::transmute(raise) };
         raise(window);
     }
+    fit_screen(window);
     window
 }
 
@@ -1000,6 +1178,20 @@ pub(crate) fn vulkan_loader() -> Option<String> {
 /// game's own `SDL_SetHint`.
 fn keep_window_on_focus_loss() {
     const HINT: &str = "SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS";
+    if std::env::var_os(HINT).is_none() {
+        // SAFETY: the host environment; the guest's is separate.
+        unsafe { std::env::set_var(HINT, "0") };
+    }
+}
+
+/// Keeps host SDL from putting the game's window in a macOS full-screen Space,
+/// unless the owner sets the hint. A Space is entered and left with an
+/// animation, behind SDL's back as far as the game can tell: changing the
+/// display mode left the window with a title bar while SDL reported it full
+/// screen, or full size with the Dock in front. Without Spaces SDL's full
+/// screen is a window over the whole display, at once.
+fn no_fullscreen_spaces() {
+    const HINT: &str = "SDL_VIDEO_MAC_FULLSCREEN_SPACES";
     if std::env::var_os(HINT).is_none() {
         // SAFETY: the host environment; the guest's is separate.
         unsafe { std::env::set_var(HINT, "0") };
@@ -1057,7 +1249,6 @@ fn wrapper(name: &[u8]) -> Option<u64> {
         b"SDL_DestroyAudioStream" => destroy_audio_stream as *const (),
         b"SDL_PollEvent" if tracing() => traced_poll_event as *const (),
         b"SDL_WaitEventTimeout" if tracing() => traced_wait_event_timeout as *const (),
-        b"SDL_PeepEvents" if tracing() => traced_peep_events as *const (),
         b"SDL_GetWindowFromID" if tracing() => changed_window_from_id as *const (),
         b"SDL_GetWindowID" if tracing() => changed_window_id as *const (),
         b"SDL_GetMouseFocus" if tracing() => changed_mouse_focus as *const (),
@@ -1078,7 +1269,16 @@ fn wrapper(name: &[u8]) -> Option<u64> {
         b"SDL_PauseAudioDevice" if tracing() => counted_pause as *const (),
         b"SDL_ResumeAudioDevice" if tracing() => counted_resume as *const (),
         b"SDL_GetAudioStreamData" if tracing() => counted_get as *const (),
+        b"SDL_PeepEvents" => peep_events as *const (),
         b"SDL_MinimizeWindow" => minimize_window as *const (),
+        b"SDL_SetWindowSize" => fitted_set_size as *const (),
+        b"SDL_SetWindowPosition" => fitted_set_position as *const (),
+        b"SDL_SetWindowBordered" => fitted_set_bordered as *const (),
+        b"SDL_SetWindowFullscreen" => fitted_set_fullscreen as *const (),
+        b"SDL_SetWindowFullscreenMode" => fitted_set_fullscreen_mode as *const (),
+        b"SDL_SyncWindow" => fitted_sync as *const (),
+        b"SDL_RestoreWindow" => fitted_restore as *const (),
+        b"SDL_DestroyWindow" => destroy_window as *const (),
         b"SDL_CreateWindowWithProperties" => create_window_with_properties as *const (),
         b"SDL_IOFromFile" => io_from_file as *const (),
         b"SDL_Vulkan_LoadLibrary" => vulkan_load_library as *const (),
@@ -1102,6 +1302,7 @@ pub(crate) fn bind(table: u64, names: u64, count: u64) -> i64 {
     }
     prepare_vulkan_environment();
     keep_window_on_focus_loss();
+    no_fullscreen_spaces();
     let mut bridge = match Bridge::new() {
         Ok(b) => b,
         Err(_) => return crate::translate::ENOMEM,
@@ -1349,6 +1550,22 @@ mod tests {
     }
 
     #[test]
+    fn a_borderless_window_as_large_as_its_display_takes_the_screen() {
+        let display = (2560, 1440);
+        assert!(covers_display(0x1000_0610, display, display));
+        // So does a window SDL holds full screen, whatever its size and border.
+        assert!(covers_display(0x1000_0611, display, display));
+        assert!(covers_display(0x1000_0401, (1920, 1080), display));
+        // A window with a border, a smaller one, a hidden one, and a minimized
+        // one do not.
+        assert!(!covers_display(0x1000_0600, display, display));
+        assert!(!covers_display(0x1000_0610, (1920, 1080), display));
+        assert!(!covers_display(0x1000_0618, display, display));
+        assert!(!covers_display(0x1000_0650, display, display));
+        assert!(!covers_display(0x1000_0610, (0, 0), (0, 0)));
+    }
+
+    #[test]
     fn the_peak_is_the_loudest_sample() {
         let samples = [0.0f32, -0.5, 0.25];
         // SAFETY: three samples, twelve bytes.
@@ -1368,6 +1585,15 @@ mod tests {
             "SDL_IOFromFile",
             "SDL_Vulkan_LoadLibrary",
             "SDL_MinimizeWindow",
+            "SDL_PeepEvents",
+            "SDL_SetWindowSize",
+            "SDL_SetWindowPosition",
+            "SDL_SetWindowBordered",
+            "SDL_SetWindowFullscreen",
+            "SDL_SetWindowFullscreenMode",
+            "SDL_SyncWindow",
+            "SDL_RestoreWindow",
+            "SDL_DestroyWindow",
             "SDL_CreateWindowWithProperties",
         ] {
             assert!(wrapper(name.as_bytes()).is_some(), "{name}");
