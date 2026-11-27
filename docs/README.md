@@ -10,6 +10,7 @@ as the code. It began as a separate repository and was merged, with its history,
 
 | Document | Purpose |
 | --- | --- |
+| [Roadmap to the first frame](ROADMAP.md) | The ordered steps from an empty Mac to the game's startup screen: what to install, what exists, what to build, which probes come first. |
 | [Architecture](ARCHITECTURE.md) | Layers, process model, loader, transform registry, bridge, glibc layer, substitution table. |
 | [Implementation plan](IMPLEMENTATION_PLAN.md) | Milestones M0 to M9, their gates and evidence, safety boundary, risks. |
 | [Anti-cheat, integrity, and legal policy](ANTI_CHEAT_AND_INTEGRITY_POLICY.md) | Owner's risk acceptance, the rules that never bend, distribution and licensing. |

@@ -4,7 +4,7 @@ This file defines the working rules for automated contributors. Human contributo
 should read [CONTRIBUTING.md](CONTRIBUTING.md), which covers the same invariants.
 
 The documentation lives in `docs/`, in this repository. Read
-`docs/ARCHITECTURE.md`, `docs/IMPLEMENTATION_PLAN.md`, and
+`docs/ROADMAP.md`, `docs/ARCHITECTURE.md`, `docs/IMPLEMENTATION_PLAN.md`, and
 `docs/ANTI_CHEAT_AND_INTEGRITY_POLICY.md` before changing behavior.
 
 ## Language
@@ -17,6 +17,8 @@ The documentation lives in `docs/`, in this repository. Read
 
 - Milestone M0 is done: repository foundations, the read-only ELF parser, the
   installation inventory, and platform probes under `spikes/`.
+- `docs/ROADMAP.md` is the ordered path from here to the game's first frame. Work in
+  its step order, and run the probes it puts first before building what they test.
 - The target is the native Linux build of Counter-Strike 2 (`game/bin/linuxsteamrt64`).
   The Windows build is out of scope; a Wine-based route already exists elsewhere.
 - Record ideas for later milestones in `docs/FUTURE_WORK.md`; do not add partial
@@ -62,6 +64,7 @@ that need the game are owner actions recorded in `docs/IMPLEMENTATION_PLAN.md`.
   A fix found while working on something else is committed separately, first.
 - English, imperative subject line under 72 characters, a body that says why.
 - Keep the tree green at every commit: `tools/check.sh` passes before each one.
-- Update `docs/IMPLEMENTATION_PLAN.md` when a milestone item changes state, with the
-  validation evidence, in the commit that changes it.
+- Update `docs/IMPLEMENTATION_PLAN.md` and `docs/ROADMAP.md` when a milestone item or
+  a roadmap step changes state, with the validation evidence, in the commit that
+  changes it.
 - Do not push, and do not rewrite published history, unless the owner asks.

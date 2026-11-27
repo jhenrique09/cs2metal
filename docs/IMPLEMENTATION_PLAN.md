@@ -2,7 +2,12 @@
 
 ## Status
 
-Current as of 26 November 2026. M0 is complete; M1 waits on an owner action.
+Current as of 27 November 2026. M0 is complete; M1 waits on an owner action.
+
+Milestone numbers are identifiers, not the order of work. [ROADMAP.md](ROADMAP.md)
+gives the order, with the exact commands for the owner actions: the Steam and Vulkan
+probes of M7 and M6 come early, and the Steam bridge is expected to be needed before
+the first frame.
 
 ## Objective
 
@@ -13,7 +18,7 @@ first. Every milestone ends in a gate with evidence recorded here.
 ## Safety boundary
 
 Automated validation (`tools/check.sh`) never launches the game, contacts Steam, downloads game files, or
-writes outside the repositories and the system temporary directory. Steps that need
+writes outside the repository and the system temporary directory. Steps that need
 the game or a Steam sign-in are **owner actions**, marked as such below. The rules in
 the [policy](ANTI_CHEAT_AND_INTEGRITY_POLICY.md) apply to every milestone.
 
@@ -48,8 +53,9 @@ explicitly before every commit.
 
 ### M1: the Linux build and its baseline inventory
 
-- [ ] **Owner action:** download the Linux build with steamcmd into a directory
-  outside both repositories, signing in interactively:
+- [ ] **Owner action:** install Steam for macOS and steamcmd, then download the Linux
+  build with steamcmd into a directory outside the repository, signing in
+  interactively (roadmap steps A1 to A4):
   `steamcmd +@sSteamCmdForcePlatformType linux +force_install_dir <game_dir> +login <account> +app_update 730 validate +quit`.
 - [ ] `cs2metal-integrity` and `cs2metal baseline record|verify`: SHA-256 of every
   file, written to the ignored `baselines/` directory, verified before any later
@@ -57,9 +63,12 @@ explicitly before every commit.
 - [ ] Run `cs2metal inventory <game_dir>` and answer open questions Q-1 to Q-5 of the
   [feasibility research](FEASIBILITY_RESEARCH_2026-11-26.md) in a new dated research
   document that records counts and public ABI names only.
-- [ ] **Owner action:** obtain the Steam Linux Runtime 3.0 ("sniper") and run the
-  inventory on its C++ runtime, to see which libstdc++ and libgcc_s versions the
-  build's symbol versions require.
+- [ ] **Owner action:** download the Steam Linux Runtime 3.0 ("sniper") from Valve's
+  public repository and extract its C++ runtime (roadmap step A5), then run the
+  inventory on it, to check that libstdc++ and libgcc_s 10.3 satisfy the build's
+  symbol versions.
+- [ ] **Owner action:** install the Vulkan SDK for macOS and record `vulkaninfo` for
+  each driver (roadmap step A6).
 
 Gate: the inventory answers Q-1 to Q-5, and the M2 to M3 scope below is revised to
 match the real import list.
@@ -106,9 +115,11 @@ Gate: a window opens and audio plays.
 
 - [ ] Probe for Q-6: an x86-64 Vulkan driver in a Rosetta process presenting to a
   window. Choose KosmicKrisp or MoltenVK on measurement.
-- [ ] Record the renderer's required features and extensions (Q-7).
+- [ ] Record the renderer's required features and extensions (Q-7), completing the
+  [Vulkan research](VULKAN_REQUIREMENTS_RESEARCH_2026-11-27.md) with measurements.
 
-Gate: the main menu renders.
+First gate, the goal of the roadmap: the game presents its startup screen in its own
+window. Second gate: the main menu renders.
 
 ### M7: Steam
 
