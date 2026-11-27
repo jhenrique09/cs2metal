@@ -54,6 +54,12 @@ environment unless the owner sets it: MoltenVK then lets Metal compile several
 shaders at once, where by default it compiles one at a time, while the renderer
 compiles pipelines on several threads. Its effect on the first-use stutters is not
 measured yet.
+`CS2METAL_SHADER_TRACE=1` asks MoltenVK for its performance tracking: every
+3000 frames it reports, for each step of making a pipeline (SPIR-V to Metal's
+shading language, that to a Metal library, a function from the library, the
+pipeline state), how many it did and how long they took. `run.sh` adds the game's
+own `vulkan_pipeline_compile_spew` to the launch, which names each pipeline as it
+is compiled, so a stall can be set beside what was compiled in it.
 `CS2METAL_VULKAN_HIDE`, a comma-separated list of device extension names, removes
 them from what `vkEnumerateDeviceExtensionProperties` reports to the game, to test
 whether the renderer works better without one, such as `VK_KHR_present_wait`.

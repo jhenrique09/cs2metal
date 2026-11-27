@@ -1515,6 +1515,21 @@ pub(crate) fn prepare_vulkan_environment() {
         // SAFETY: the host environment; the guest's is separate.
         unsafe { std::env::set_var(CONCURRENT, "1") };
     }
+    // The shader trace: MoltenVK times each step of making a pipeline (SPIR-V to
+    // Metal's shading language, that to a Metal library, the library to a
+    // pipeline state) and reports the counts and the times every so many frames.
+    if std::env::var_os("CS2METAL_SHADER_TRACE").is_some() {
+        for (name, value) in [
+            ("MVK_CONFIG_PERFORMANCE_TRACKING", "1"),
+            ("MVK_CONFIG_ACTIVITY_PERFORMANCE_LOGGING_STYLE", "0"),
+            ("MVK_CONFIG_PERFORMANCE_LOGGING_FRAME_COUNT", "3000"),
+        ] {
+            if std::env::var_os(name).is_none() {
+                // SAFETY: the host environment; the guest's is separate.
+                unsafe { std::env::set_var(name, value) };
+            }
+        }
+    }
     if std::env::var_os("VK_DRIVER_FILES").is_some()
         || std::env::var_os("VK_ICD_FILENAMES").is_some()
     {

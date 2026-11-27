@@ -47,6 +47,9 @@
 #   CS2METAL_KEEP_VIDEO_SETTINGS=1   leave the video settings alone at the first launch too
 #   CS2METAL_NO_OVERLAY=1            start without the Steam overlay
 #   CS2METAL_KEEP_INTRO=1            play the opening movie
+#   CS2METAL_SHADER_TRACE=1          time the compiling of shaders and pipelines: MoltenVK
+#                                    reports each step's count and time every 3000 frames,
+#                                    and the game names each pipeline it compiles
 #   CS2METAL_*                       diagnostics, passed through (e.g. CS2METAL_SDL_TRACE=1)
 set -euo pipefail
 
@@ -165,6 +168,12 @@ fi
 
 if [ "${CS2METAL_KEEP_INTRO:-0}" != 1 ]; then
     export CS2METAL_NO_INTRO=1
+fi
+
+# The shader trace has two halves: the host asks MoltenVK for its timings, and
+# the game is asked, here, to name the pipelines it compiles.
+if [ -n "${CS2METAL_SHADER_TRACE:-}" ]; then
+    engine_args+=(+vulkan_pipeline_compile_spew 1)
 fi
 
 mkdir -p "$logs_dir"
