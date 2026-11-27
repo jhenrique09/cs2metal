@@ -145,7 +145,10 @@ that made it.
   translated at the boundary: `stat`, `dirent64`, `sigaction`, socket addresses,
   `open`, `mmap`, and `fcntl` flags, signal numbers.
 - Threads: `clone` with glibc's flags becomes a host thread whose GS starts at the new
-  thread's control block; `futex` becomes `os_sync_wait_on_address` and
+  thread's control block. Every guest thread, the main one too, asks macOS for
+  the user-interactive class, which keeps it on the performance cores ahead of
+  background work and its timers exact (`CS2METAL_NO_QOS=1` leaves them as macOS
+  makes them); `futex` becomes `os_sync_wait_on_address` and
   `os_sync_wake_by_address`;
   `set_robust_list` and `rseq` are recorded or declined as glibc tolerates.
   `CS2METAL_FUTEX_TRACE=<seconds>` reports, at that period, each wait parked for two

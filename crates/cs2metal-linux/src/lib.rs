@@ -242,6 +242,7 @@ pub fn exec(launch: &Launch) -> Result<Infallible, Error> {
     }
     fault::install();
     fault::watch_thread();
+    threads::raise_this_thread();
     syscall::raise_open_files();
     set_syscall_handler(syscall::handle);
 

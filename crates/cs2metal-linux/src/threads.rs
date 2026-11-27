@@ -70,6 +70,51 @@ unsafe extern "C" {
     fn os_sync_wake_by_address_all(addr: *mut libc::c_void, size: usize, flags: u32) -> i32;
 }
 
+unsafe extern "C" {
+    fn pthread_attr_set_qos_class_np(
+        attr: *mut libc::pthread_attr_t,
+        class: u32,
+        relative_priority: libc::c_int,
+    ) -> libc::c_int;
+    fn pthread_set_qos_class_self_np(class: u32, relative_priority: libc::c_int) -> libc::c_int;
+}
+
+/// `QOS_CLASS_USER_INTERACTIVE`: the class of the thread a user is waiting on.
+const QOS_CLASS_USER_INTERACTIVE: u32 = 0x21;
+
+/// Whether the guest's threads ask macOS for the user-interactive class.
+///
+/// A thread made without a class has none, and macOS is then free to run it on
+/// an efficiency core and to delay its timers to save power. A game's threads
+/// are the ones the player waits on: with the class they are kept on the
+/// performance cores ahead of background work, and a sleep ends when it was
+/// asked to. `CS2METAL_NO_QOS=1` leaves the threads as macOS makes them.
+fn interactive() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("CS2METAL_NO_QOS").is_none())
+}
+
+/// Asks for the user-interactive class for the calling thread: the guest's main
+/// thread, which no `clone` made.
+pub(crate) fn raise_this_thread() {
+    if interactive() {
+        // SAFETY: changes the calling thread's own class; a refusal changes nothing.
+        unsafe { pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0) };
+    }
+}
+
+/// Asks for the user-interactive class for a thread to be made with `attr`.
+///
+/// # Safety
+///
+/// `attr` must be initialized.
+unsafe fn raise(attr: &mut libc::pthread_attr_t) {
+    if interactive() {
+        // SAFETY: the caller's contract; a refusal leaves the attributes as they were.
+        unsafe { pthread_attr_set_qos_class_np(attr, QOS_CLASS_USER_INTERACTIVE, 0) };
+    }
+}
+
 /// `OS_CLOCK_MACH_ABSOLUTE_TIME`.
 const OS_CLOCK_MACH_ABSOLUTE_TIME: u32 = 32;
 
@@ -450,6 +495,7 @@ pub(crate) fn clone(f: &SyscallFrame) -> i64 {
         libc::pthread_attr_init(&mut attr);
         libc::pthread_attr_setdetachstate(&mut attr, libc::PTHREAD_CREATE_DETACHED);
         libc::pthread_attr_setstacksize(&mut attr, 1 << 20);
+        raise(&mut attr);
         let mut thread: libc::pthread_t = std::mem::zeroed();
         let arg = Box::into_raw(start).cast();
         let status = libc::pthread_create(&mut thread, &attr, thread_main, arg);
@@ -490,6 +536,54 @@ mod tests {
 
     const WAIT: u64 = 0x80;
     const WAKE: u64 = 0x81;
+
+    unsafe extern "C" {
+        fn qos_class_self() -> u32;
+    }
+
+    extern "C" fn report_class(out: *mut libc::c_void) -> *mut libc::c_void {
+        // SAFETY: the test passes an AtomicU32 that outlives the thread.
+        let out = unsafe { &*out.cast::<AtomicU32>() };
+        // SAFETY: qos_class_self has no preconditions.
+        out.store(unsafe { qos_class_self() }, Ordering::Relaxed);
+        std::ptr::null_mut()
+    }
+
+    /// A thread made as `clone` makes one runs in the user-interactive class,
+    /// and so does a thread that raises itself, as the guest's main thread does.
+    #[test]
+    fn the_guests_threads_are_user_interactive() {
+        if !interactive() {
+            eprintln!("skipped: CS2METAL_NO_QOS is set");
+            return;
+        }
+        static CLASS: AtomicU32 = AtomicU32::new(0);
+        // SAFETY: attr is initialized before use and destroyed after; the thread
+        // is joined before the test returns.
+        unsafe {
+            let mut attr: libc::pthread_attr_t = std::mem::zeroed();
+            libc::pthread_attr_init(&mut attr);
+            raise(&mut attr);
+            let mut thread: libc::pthread_t = std::mem::zeroed();
+            let arg = std::ptr::from_ref(&CLASS).cast_mut().cast();
+            assert_eq!(
+                libc::pthread_create(&mut thread, &attr, report_class, arg),
+                0
+            );
+            libc::pthread_attr_destroy(&mut attr);
+            libc::pthread_join(thread, std::ptr::null_mut());
+        }
+        assert_eq!(CLASS.load(Ordering::Relaxed), QOS_CLASS_USER_INTERACTIVE);
+
+        let own = std::thread::spawn(|| {
+            raise_this_thread();
+            // SAFETY: qos_class_self has no preconditions.
+            unsafe { qos_class_self() }
+        })
+        .join()
+        .expect("thread");
+        assert_eq!(own, QOS_CLASS_USER_INTERACTIVE);
+    }
 
     #[test]
     fn a_wait_ends_when_its_word_is_woken() {
