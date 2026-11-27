@@ -54,6 +54,12 @@ target/x86_64-apple-darwin/release/cs2metal run \
   -- -insecure
 ```
 
+`tools/launch.sh` wraps that command for a kit directory that holds the installation
+and the runtime: it checks that Steam is running, keeps a log per session, and on
+a kit's first launch sets the game's video settings to its own low preset
+(`tools/low-preset.sh`), since what the game picks for hardware it does not know can
+be heavy for this host. Later launches leave the settings the owner chooses alone.
+
 `run` verifies every game file against the baseline first, and sends the game's
 writes to an overlay directory beside the installation. Always pass `-insecure`:
 the project never joins a VAC-secured server. Diagnostics are environment

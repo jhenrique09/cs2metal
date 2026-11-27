@@ -12,8 +12,15 @@
 # docs/ONLINE_LAUNCH_DECISION.md: use a secondary account. Automated contributors
 # never pass it. The option is the launcher's own and does not reach the engine.
 #
+# The first launch of a kit starts from the game's own low video preset
+# (tools/low-preset.sh), because the settings the game picks for hardware it does
+# not know can be heavy for this host. The kit is then marked, in
+# <kit>/.cs2metal-first-launch, and no later launch touches the video settings:
+# what the owner chooses in the game stays.
+#
 # Environment:
 #   CS2METAL_KIT    the directory with cs2-linux/ and sniper/ (default ~/cs2metal-kit)
+#   CS2METAL_KEEP_VIDEO_SETTINGS=1   leave the video settings alone at the first launch too
 #   CS2METAL_*      diagnostics, passed through (e.g. CS2METAL_SDL_TRACE=1)
 set -euo pipefail
 
@@ -54,6 +61,37 @@ if [ "$online" = 1 ]; then
     echo "launch: reachable and the account signed in to Steam carries the risk." >&2
 else
     mode=(-insecure)
+fi
+
+# The graphics device's vendor and device ids, in decimal, as the Vulkan SDK's
+# vulkaninfo reports them for MoltenVK; nothing if the SDK is not found.
+device_ids() {
+    local sdk ids
+    sdk="${VULKAN_SDK:-$(ls -d "$HOME"/VulkanSDK/*/macOS 2>/dev/null | sort -V | tail -1)}"
+    [ -x "$sdk/bin/vulkaninfo" ] || return 0
+    ids="$(VK_DRIVER_FILES="$sdk/share/vulkan/icd.d/MoltenVK_icd.json" \
+        "$sdk/bin/vulkaninfo" --summary 2>/dev/null |
+        awk '$1 == "vendorID" && !v { v = $3 } $1 == "deviceID" && !d { d = $3 } END { print v, d }')"
+    # shellcheck disable=SC2086
+    case "$ids" in
+        0x*\ 0x*) printf '%d %d\n' $ids ;;
+    esac
+}
+
+first_launch="$kit/.cs2metal-first-launch"
+if [ ! -e "$first_launch" ]; then
+    preset=0
+    if [ "${CS2METAL_KEEP_VIDEO_SETTINGS:-0}" != 1 ]; then
+        echo "launch: first launch of this kit: starting from the game's low video preset"
+        # shellcheck disable=SC2046
+        "$repo/tools/low-preset.sh" "$HOME/Library/Application Support/Steam/userdata" \
+            $(device_ids) || preset=$?
+    fi
+    # Status 3: there was no settings file to change and none could be made; the
+    # game makes one in this launch, and the next launch sets the preset in it.
+    if [ "$preset" != 3 ]; then
+        date > "$first_launch"
+    fi
 fi
 
 mkdir -p "$logs"
