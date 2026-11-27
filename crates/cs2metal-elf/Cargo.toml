@@ -1,0 +1,17 @@
+[package]
+name = "cs2metal-elf"
+description = "Read-only, bounds-checked ELF64 parser for the CS2 Linux build"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[features]
+# Exposes `testing::ElfBuilder`, which other crates use to build fixtures in tests.
+test-support = []
+
+[dependencies]
+serde.workspace = true
+
+[lints]
+workspace = true

@@ -17,10 +17,10 @@ if [[ -f Cargo.toml ]]; then
     cargo fmt --all -- --check
 
     echo "==> cargo clippy"
-    cargo clippy --workspace --all-targets --locked -- -D warnings
+    cargo clippy --workspace --all-targets --all-features --locked -- -D warnings
 
     echo "==> cargo test"
-    cargo test --workspace --locked
+    cargo test --workspace --all-features --locked
 fi
 
 echo "==> all checks passed"

@@ -1,0 +1,22 @@
+[workspace]
+resolver = "3"
+members = ["crates/cs2metal-elf"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+publish = false
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[workspace.lints.rust]
+# Crates that need unsafe code (the loader) opt out explicitly.
+unsafe_code = "forbid"
+missing_debug_implementations = "warn"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+unwrap_used = "warn"
