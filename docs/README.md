@@ -27,6 +27,7 @@ as the code. It began as a separate repository and was merged, with its history,
 | --- | --- |
 | [Feasibility research, 26 November 2026](FEASIBILITY_RESEARCH_2026-11-26.md) | Prior art, what is known about the Linux build, platform facts, open questions Q-1 to Q-9. |
 | [Rosetta segment probe, 26 November 2026](ROSETTA_SEGMENT_PROBE_2026-11-26.md) | No `fs` base is possible under Rosetta; the GS swap works at 520 ns per pair on an M1 Max. |
+| [Vulkan requirements research, 27 November 2026](VULKAN_REQUIREMENTS_RESEARCH_2026-11-27.md) | The 71 extensions the CS2 renderer names, against MoltenVK and KosmicKrisp; what the game configuration requires; what is still unmeasured. |
 
 ## Backlog
 
