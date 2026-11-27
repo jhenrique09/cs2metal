@@ -23,7 +23,7 @@ as the code. It began as a separate repository and was merged, with its history,
 | [The Linux build is the baseline](LINUX_BUILD_BASELINE_DECISION.md) | Accepted, 26 November 2026. |
 | [Thread-local storage under Rosetta](TLS_UNDER_ROSETTA_DECISION.md) | Proposed: rewrite `fs` prefixes to `gs` in private mappings and swap GS at the boundary. Accepted at the M2 gate. |
 | [Stay on Rosetta for now](ROSETTA_HORIZON_DECISION.md) | Accepted, 27 November 2026: a research prototype on Rosetta; no arm64 translator work; Rosetta-specific code isolated. |
-| [Steam bridge design](STEAM_BRIDGE_DESIGN.md) | Proposed: keep the game's own Linux `libsteam_api.so` and bridge it to the macOS client library, so only Valve's code handles identity and licences. Accepted when probes H-1 and H-2 pass. |
+| [Steam bridge design](STEAM_BRIDGE_DESIGN.md) | Accepted, 27 November 2026, after probes H-1 and H-2 passed: keep the game's own Linux `libsteam_api.so` and bridge it to the macOS client library, so only Valve's code handles identity and licences. |
 
 ## Research
 
@@ -38,6 +38,7 @@ as the code. It began as a separate repository and was merged, with its history,
 | [Code discovery beyond the unwind tables, 27 November 2026](CODE_DISCOVERY_2026-11-27.md) | Recursive descent proves 91.9% of the build's code, reaches libtier0's 10 thread-pointer reads and no data; all 61 modules can be rewritten mechanically. |
 | [Vulkan drivers measured on the Mac, 27 November 2026](VULKAN_DRIVER_MEASUREMENT_2026-11-27.md) | MoltenVK presents from an x86-64 process under Rosetta 2 (Q-6); the SDK's KosmicKrisp is arm64 only. Of the Linux renderer's 68 device extension names MoltenVK offers 33; both drivers report every subgroup operation and BC compression. |
 | [Steam app probe, 27 November 2026](STEAM_APP_PROBE_2026-11-27.md) | Partial H-2: the macOS client accepts an x86-64 process as app 730 and answers that the account holds it; it was offline, so the server connection is measured again. |
+| [Steam app probe online, 27 November 2026](STEAM_APP_PROBE_ONLINE_2026-11-27.md) | H-2 holds: the connected macOS client serves app 730 to an x86-64 process and answers for the account's licence. Gate 0 passes. |
 | [Route and effort review, 27 November 2026](ROUTE_AND_EFFORT_REVIEW_2026-11-27.md) | Owner-requested assessment of the chosen route, its technical gates, alternative libc strategies, Native VIctory reuse, and realistic effort. |
 
 ## Backlog

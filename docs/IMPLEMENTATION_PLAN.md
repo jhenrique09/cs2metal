@@ -168,9 +168,9 @@ window. Second gate: the main menu renders.
 
 - [x] Probe H-1 of the [Steam bridge design](STEAM_BRIDGE_DESIGN.md): confirmed on
   27 November 2026 ([probe](STEAM_CLIENT_PROBE_2026-11-27.md)).
-- [ ] Probes H-2 to H-4 (Q-8) against the owner's macOS Steam client. H-2 ran
-  partially on 27 November 2026 with `spikes/steam-client`: accepted as app 730 and
-  ownership answered, with the client offline ([Steam app probe](STEAM_APP_PROBE_2026-11-27.md)). H-2 before any
+- [ ] Probes H-2 to H-4 (Q-8) against the owner's macOS Steam client. H-2 passed on
+  27 November 2026 with `spikes/steam-client`: served as app 730, online, ownership
+  answered ([Steam app probe online](STEAM_APP_PROBE_ONLINE_2026-11-27.md)). H-3 and H-4 remain. H-2 before any
   bridge code.
 - [ ] The bridged client module and the interface proxies.
 

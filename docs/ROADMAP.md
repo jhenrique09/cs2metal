@@ -56,9 +56,9 @@ The two gates come from the
 - **Gate 0** passes when B2, B3, B5, B6, D1 (H-2), and F1 have run on the real build and
   none of them invalidates the design. Until then nothing beyond fixtures and the
   loader core is built.
-  State on 27 November 2026: B2, B3, B5, B6, and F1 have run and none invalidates
-  the design. D1 (H-2) ran partially: the client does not refuse app 730, and the
-  run with the client online remains.
+  State: **passed on 27 November 2026.** B2, B3, B5, B6, D1 (H-2), and F1 have run
+  on build 26879581 and the owner's machine, and none invalidates the design. Phase
+  C may start; Gate 1 comes next.
 - **Gate 1** passes when the libc route of C3 is chosen from measurements on the
   fixtures. The architecture and the effort budget are revised around it before the
   route is built out.
@@ -447,10 +447,10 @@ Nothing about identity, ownership, or sessions is emulated.
   ([probe](STEAM_CLIENT_PROBE_2026-11-27.md)).
 - H-2: a small native x86-64 program under `spikes/` declares app 730, connects to
   the running client through that library, and asks two read-only questions: is the
-  user signed in, and does the account hold app 730. **Run on 27 November 2026,
-  partial** ([Steam app probe](STEAM_APP_PROBE_2026-11-27.md)): the client accepts the process as app 730 and
-  answers that the account holds it, but it was offline at the time, so the
-  server connection must be measured again with `spikes/steam-client/run.sh`.
+  user signed in, and does the account hold app 730. **Done, 27 November 2026:
+  confirmed** with `spikes/steam-client/run.sh`. Offline, the client already accepted
+  the process as app 730 ([first run](STEAM_APP_PROBE_2026-11-27.md)); online it is
+  also connected to the Steam servers ([Steam app probe online](STEAM_APP_PROBE_ONLINE_2026-11-27.md)).
 
 If H-2 fails, Steam on macOS refuses the app and the design must change before any
 bridge code is written. That is why this comes early.
@@ -530,7 +530,7 @@ research prototype, by the [Rosetta horizon decision](ROSETTA_HORIZON_DECISION.m
 | steamcmd will not deliver the Linux depot to a Mac | A4 | Steam console `download_depot`, depot by depot |
 | `cs2` is a fixed-address executable inside the first 4 GB | B2 | Ruled out on 27 November 2026: `cs2` is a PIE |
 | Code outside the unwind tables cannot be told from data | B6 | Stop and reassess T-001. Did not happen: separated on 27 November 2026 |
-| Steam on macOS refuses app 730 | D1 | No Steam for the guest; boot as far as the engine goes without it. Did not happen offline, 27 November 2026; the online run remains |
+| Steam on macOS refuses app 730 | D1 | No Steam for the guest; boot as far as the engine goes without it. Did not happen: served as app 730, 27 November 2026 |
 | No x86-64 Vulkan driver works under Rosetta | F1 | Stop and reassess. An arm64 rendering helper is a new project with its own decision record. Did not happen: MoltenVK works, 27 November 2026 |
 | The `fs` rewrite cannot be made safe on real modules | C2, C4 | The own-translator route |
 | The renderer refuses to start without a capability Metal lacks | F2 | Recorded as a hard limit; nothing is patched |
