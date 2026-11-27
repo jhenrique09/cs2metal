@@ -1,6 +1,3 @@
-# The documentation is a separate Git repository nested at docs/.
-/docs/
-
 # Build output.
 /target/
 **/*.rs.bk
