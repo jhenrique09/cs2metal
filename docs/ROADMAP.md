@@ -548,7 +548,8 @@ keyboard and mouse input.
 State: the bridge is built, 27 November 2026 ([SDL bridge](SDL_BRIDGE.md)): the
 game's `libSDL3.so.0` is answered with a shim bound by name to the Vulkan SDK's
 universal SDL 3, 1,270 of its 1,302 functions, with guest callbacks through the
-guest thunk. The first client boot loads it; the window is next.
+guest thunk. The game's window opens through it, on the main thread
+([first client boots](FIRST_CLIENT_BOOT_2026-11-27.md)); input is not yet measured.
 
 ## Phase F: Vulkan and the first frame
 
@@ -580,6 +581,9 @@ State: the bridge is built, 27 November 2026 ([Vulkan bridge](VULKAN_BRIDGE.md))
 function through a host thunk, with portability enumeration and the portability
 subset enabled on the way. A test creates an instance and a device through it
 under Rosetta 2.
+**Gate met the same day**: the renderer created its device on MoltenVK, with the
+five instance and 21 device extensions it asked for, all present (Q-7's extension
+half).
 
 ### F3. Swapchain and first present (to build, M to L)
 
@@ -587,6 +591,11 @@ Surface through `SDL_Vulkan_CreateSurface`, which on macOS yields a Metal layer;
 swapchain; the first frames. **Gate, and the goal of this roadmap: the game presents
 its startup screen in its own window.** Record a screenshot description, the log,
 and the driver used in the implementation plan.
+
+State: **gate met on 27 November 2026** ([first client boots](FIRST_CLIENT_BOOT_2026-11-27.md)).
+The game opened its window and presented its startup screen, the Valve logo, which
+the owner photographed, on MoltenVK on an Apple M1 Max. A later boot reached the
+main menu state about 15 seconds after start.
 
 ## After the first frame
 

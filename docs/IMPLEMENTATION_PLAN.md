@@ -187,6 +187,9 @@ the dedicated server ran a map for 651 seconds.
 ### M5: SDL3 substitution
 
 - [ ] Window, keyboard and mouse, game controllers, and audio through a macOS SDL3.
+  On 27 November 2026 the [SDL bridge](SDL_BRIDGE.md) opens the game's window; the
+  audio stream callback, which runs on a host-only thread, is not bridged yet, and
+  input is not yet measured.
 
 Gate: a window opens and audio plays.
 
@@ -208,6 +211,11 @@ Gate: a window opens and audio plays.
 
 First gate, the goal of the roadmap: the game presents its startup screen in its own
 window. Second gate: the main menu renders.
+
+First gate passed on 27 November 2026: the game presented its startup screen in its
+own window, on MoltenVK through the [Vulkan bridge](VULKAN_BRIDGE.md)
+([first client boots](FIRST_CLIENT_BOOT_2026-11-27.md)). The main menu state is
+reached; whether it renders correctly is to be confirmed on screen.
 
 ### M7: Steam
 
