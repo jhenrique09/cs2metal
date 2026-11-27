@@ -50,6 +50,7 @@ pub fn result(value: i64) -> i64 {
 
 pub const EBADF: i64 = -9;
 pub const EAGAIN: i64 = -11;
+pub const ENOMEM: i64 = -12;
 pub const EACCES: i64 = -13;
 pub const EFAULT: i64 = -14;
 pub const EINVAL: i64 = -22;

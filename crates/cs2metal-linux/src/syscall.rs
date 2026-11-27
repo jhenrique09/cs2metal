@@ -226,6 +226,9 @@ pub(crate) extern "C" fn handle(f: &mut SyscallFrame) -> u64 {
 }
 
 fn answer(f: &mut SyscallFrame) -> u64 {
+    if let Some(value) = crate::more::answer(f) {
+        return value as u64;
+    }
     let (a0, a1, a2, a3) = (f.arg0, f.arg1, f.arg2, f.arg3);
     let fd = a0 as libc::c_int;
     // SAFETY: every call below passes the guest's own arguments to libSystem, as
@@ -242,7 +245,11 @@ fn answer(f: &mut SyscallFrame) -> u64 {
                 ))),
                 None => EFAULT,
             },
-            3 => result(i64::from(libc::close(fd))),
+            3 => {
+                crate::fds::close(fd);
+                crate::fds::close_dir(fd);
+                result(i64::from(libc::close(fd)))
+            }
             4 => stat_path(a0, a1, true),
             5 => fstat(a0 as i64, a1),
             6 => stat_path(a0, a1, false),
