@@ -10,6 +10,7 @@ as the code. It began as a separate repository and was merged, with its history,
 
 | Document | Purpose |
 | --- | --- |
+| [Getting started](GETTING_STARTED.md) | The owner's first session in seven steps: install Steam and steamcmd, download the Linux build, the C++ runtime and the Vulkan SDK, then run the inventory. |
 | [Roadmap to the first frame](ROADMAP.md) | The ordered steps from an empty Mac to the game's startup screen: what to install, what exists, what to build, which probes come first. |
 | [Architecture](ARCHITECTURE.md) | Layers, process model, loader, transform registry, bridge, glibc layer, substitution table. |
 | [Implementation plan](IMPLEMENTATION_PLAN.md) | Milestones M0 to M9, their gates and evidence, safety boundary, risks. |

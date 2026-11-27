@@ -6,8 +6,9 @@ Counter-Strike 2 on Apple silicon Macs, without Wine and without a virtual machi
 > [!WARNING]
 > **Nothing runs yet.** The project is at milestone M0: repository foundations, a
 > read-only ELF inventory tool, and the first platform probes. It does not start the
-> game. [docs/ROADMAP.md](docs/ROADMAP.md) is the step-by-step path to the first
-> frame. The project is not affiliated with or endorsed by Valve or Apple.
+> game. [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md) is the first session, and
+> [docs/ROADMAP.md](docs/ROADMAP.md) is the step-by-step path to the first frame.
+> The project is not affiliated with or endorsed by Valve or Apple.
 
 ## The idea in one paragraph
 
