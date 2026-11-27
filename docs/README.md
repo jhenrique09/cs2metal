@@ -70,6 +70,7 @@ corrects it and links back.
 | [What the client's window shows, 27 November 2026](CLIENT_RENDERING_2026-11-27.md) | Which window shows what, and whether the renderer presents: the correction to the first client boots. |
 | [The client, playable offline, 27 November 2026](CLIENT_PLAYABLE_2026-11-27.md) | The owner plays a practice match with keyboard, mouse, and sound at 50 to 80 frames per second; what was fixed for input, the pacing measured, and what stays open. |
 | [Online play, as the owner reports it, 27 November 2026](ONLINE_PLAY_2026-11-27.md) | The owner plays casual and competitive matches online, with no VAC ban so far. Reported, not measured; at the player's own risk. |
+| [Where the time goes, and what was tried, 27 November 2026](PERFORMANCE_AB_2026-11-27.md) | Samples of a match show the main thread as the limit, an eighth of it in `clock_gettime` system calls, and the GS switches of Vulkan calls costing half of what the driver itself does; the stalls of an online match are first-use pipelines; what each setting and each host change measured. |
 | [Route and effort review, 27 November 2026](ROUTE_AND_EFFORT_REVIEW_2026-11-27.md) | Owner-requested assessment of the chosen route, its technical gates, alternative libc strategies, Native VIctory reuse, and realistic effort. |
 
 ## Backlog
