@@ -19,6 +19,11 @@ python3 -m unittest discover -s docs/tests -q
 echo "==> documentation checker"
 python3 docs/tools/check_docs.py
 
+echo "==> shell scripts"
+git ls-files '*.sh' | while read -r script; do
+    bash -n "$script"
+done
+
 if [[ -f Cargo.toml ]]; then
     echo "==> cargo fmt"
     cargo fmt --all -- --check

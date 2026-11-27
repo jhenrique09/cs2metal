@@ -61,9 +61,12 @@ the thread-pointer swap and the translation of data layouts that differ.
 
 Before every launch the host hashes every file of the installation and compares the
 result with the baseline the owner recorded after a clean Steam validation. Any
-difference stops the launch and names the files. The baseline lives in the ignored
-`baselines/` directory of the code repository and holds only relative paths.
-`steamapps/` is excluded: it is the download tool's bookkeeping, not the game.
+difference stops the launch and names the files. The baseline is never tracked and holds only
+relative paths: `install.sh` records it in `~/cs2-metal/data/baselines/`, and
+`run.sh` records it again when steamcmd has installed a new build of the game. A
+baseline recorded by hand defaults to the ignored `baselines/` directory of the
+repository. `steamapps/` is excluded: it is the download tool's bookkeeping, not the
+game.
 
 ## Process start and dynamic linking
 

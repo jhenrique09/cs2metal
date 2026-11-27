@@ -10,7 +10,7 @@ as the code. It began as a separate repository and was merged, with its history,
 
 | Document | Purpose |
 | --- | --- |
-| [Getting started](GETTING_STARTED.md) | The owner's first session in seven steps: install Steam and steamcmd, download the Linux build, the C++ runtime and the Vulkan SDK, then run the inventory. |
+| [Getting started](GETTING_STARTED.md) | Setting up, starting, updating, and removing the game with `install.sh`, `build.sh`, `run.sh`, and `create-shortcut.sh`; where everything is kept; what to do when something goes wrong. |
 | [Roadmap to the first frame](ROADMAP.md) | The ordered steps from an empty Mac to the game's startup screen: what to install, what exists, what to build, which probes come first. |
 | [Architecture](ARCHITECTURE.md) | Layers, process model, loader, transform registry, bridge, glibc layer, substitution table. |
 | [Implementation plan](IMPLEMENTATION_PLAN.md) | Milestones M0 to M9, their gates and evidence, safety boundary, risks. |
@@ -26,7 +26,8 @@ as the code. It began as a separate repository and was merged, with its history,
 | [How the guest gets its C library](LIBC_ROUTE_DECISION.md) | Accepted, 27 November 2026: glibc 2.31 rebuilt with one system call slot, with its own ld.so (route C); the host is a Linux system call layer. |
 | [Linux fixtures are rebuilt, not tracked](FIXTURES_DECISION.md) | Proposed, 27 November 2026, in effect for C1: track sources, expected outputs, and checksums; build in the pinned SDK image. |
 | [Steam bridge design](STEAM_BRIDGE_DESIGN.md) | Accepted, 27 November 2026, after probes H-1 and H-2 passed: keep the game's own Linux `libsteam_api.so` and bridge it to the macOS client library, so only Valve's code handles identity and licences. |
-| [An opt-in online launch](ONLINE_LAUNCH_DECISION.md) | Accepted, 27 November 2026: `tools/launch.sh` accepts `-online`, which leaves `-insecure` out; offline stays the default, and automated boots never use it. |
+| [An opt-in online launch](ONLINE_LAUNCH_DECISION.md) | Accepted, 27 November 2026: `run.sh` accepts `-online`, which leaves `-insecure` out; offline stays the default, and automated boots never use it. |
+| [The shortcut may be added to Steam's library](STEAM_SHORTCUT_DECISION.md) | Accepted, 27 November 2026: `create-shortcut.sh --steam` adds one entry to Steam's list of non-Steam games, only when asked, only while Steam is not running, keeping a copy of the file. |
 
 ## Research
 

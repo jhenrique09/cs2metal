@@ -28,6 +28,7 @@ that changes it.
 | SDL bridge: window, keyboard, mouse, sound | Built; gate met ([SDL bridge](SDL_BRIDGE.md)) |
 | Vulkan bridge on MoltenVK | Built; the renderer presents ([Vulkan bridge](VULKAN_BRIDGE.md)) |
 | The game | Main menu and a practice match with bots, offline with `-insecure` ([record](CLIENT_PLAYABLE_2026-11-27.md)) |
+| Setting up, building, updating, starting | `install.sh`, `build.sh`, `run.sh`, `create-shortcut.sh` ([getting started](GETTING_STARTED.md)) |
 
 The game starts today and the owner plays a practice match. What follows the
 roadmap is the implementation plan's M8: thirty minutes of a local bot match
@@ -76,11 +77,16 @@ Sizes are relative: S (hours), M (days), L (weeks), XL (more).
 
 ## Phase A: put the pieces on the Mac
 
+Since 27 November 2026 `./install.sh` does this phase and the builds of phases B
+and C in one run ([getting started](GETTING_STARTED.md)), and the pieces live under
+`~/cs2-metal/data/`. The steps below are what it automates, kept as the record of
+how each piece was first obtained.
+
 Everything lives in one directory outside this repository and outside the Steam
 library, so that neither Git nor the macOS Steam client ever touches the game files:
 
 ```
-~/cs2metal-kit/
+~/cs2-metal/data/
   steamcmd/     Valve's command-line downloader, with its own sign-in cache
   cs2-linux/    the Linux build of CS2; cs2metal only ever reads it
   sniper/       the C++ runtime from Steam Linux Runtime 3.0
@@ -125,7 +131,7 @@ installed system-wide. It is an x86-64 program, so it runs under Rosetta, and it
 updates itself on first start. (CONFIRMED: 2.5 MB tarball, x86-64 Mach-O.)
 
 ```bash
-mkdir -p ~/cs2metal-kit/steamcmd && cd ~/cs2metal-kit/steamcmd
+mkdir -p ~/cs2-metal/data/steamcmd && cd ~/cs2-metal/data/steamcmd
 curl -sSfL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_osx.tar.gz | tar -xz
 ```
 
@@ -136,15 +142,15 @@ curl -sSfL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_osx.tar.gz 
 steamcmd downloads for the platform it is told, not the one it runs on:
 
 ```bash
-cd ~/cs2metal-kit/steamcmd
+cd ~/cs2-metal/data/steamcmd
 ./steamcmd.sh +@sSteamCmdForcePlatformType linux \
-  +force_install_dir ~/cs2metal-kit/cs2-linux \
+  +force_install_dir ~/cs2-metal/data/cs2-linux \
   +login <account> \
   +app_update 730 validate +quit
 ```
 
 - You type the password and the Steam Guard code into steamcmd itself. No project
-  tool sees them. steamcmd keeps its session cache inside `~/cs2metal-kit/steamcmd/`.
+  tool sees them. steamcmd keeps its session cache inside `~/cs2-metal/data/steamcmd/`.
 - Expect about 60 GB to download and 71 GB on disk: the shared content depots plus
   the Linux depot 2347773. (REPORTED sizes, August 2026.)
 - The platform override is documented by Valve for `windows`, `macos`, and `linux`,
@@ -163,7 +169,7 @@ State: done on 27 November 2026. The `linux` override works from macOS: build
 Done when:
 
 ```bash
-file ~/cs2metal-kit/cs2-linux/game/bin/linuxsteamrt64/cs2    # ELF 64-bit LSB ... x86-64
+file ~/cs2-metal/data/cs2-linux/game/bin/linuxsteamrt64/cs2    # ELF 64-bit LSB ... x86-64
 ```
 
 If the override does not deliver the Linux depot, the fallback is the Steam client's
@@ -180,7 +186,7 @@ code. Valve publishes the runtime openly, with checksums, so no sign-in is neede
 glibc 2.31, libstdc++ and libgcc_s 10.3, SDL 3.4, and the Vulkan loader 1.4.309.)
 
 ```bash
-mkdir -p ~/cs2metal-kit/sniper && cd ~/cs2metal-kit/sniper
+mkdir -p ~/cs2-metal/data/sniper && cd ~/cs2-metal/data/sniper
 B=https://repo.steampowered.com/steamrt3/images/latest-public-stable
 F='com.valvesoftware.SteamRuntime.Platform-amd64,i386-sniper-runtime.tar.gz'
 curl -fL --http1.1 --retry 5 --retry-all-errors -C - -O "$B/$F" \
@@ -243,10 +249,10 @@ cargo build --release
 ### B2. Inventory the Linux build (owner, S; exists today)
 
 ```bash
-cargo run --release -p cs2metal -- inventory ~/cs2metal-kit/cs2-linux \
+cargo run --release -p cs2metal -- inventory ~/cs2-metal/data/cs2-linux \
   --markdown reports/inventory.md --json reports/inventory.json
-cargo run --release -p cs2metal -- inspect ~/cs2metal-kit/cs2-linux/game/bin/linuxsteamrt64/cs2
-cargo run --release -p cs2metal -- inventory ~/cs2metal-kit/sniper \
+cargo run --release -p cs2metal -- inspect ~/cs2-metal/data/cs2-linux/game/bin/linuxsteamrt64/cs2
+cargo run --release -p cs2metal -- inventory ~/cs2-metal/data/sniper \
   --markdown reports/sniper.md
 ```
 
@@ -264,9 +270,9 @@ every shared object uses dynamic TLS through `__tls_get_addr`.
 ### B3. Integrity baseline (owner, S; exists today)
 
 ```bash
-cargo run --release -p cs2metal -- baseline record ~/cs2metal-kit/cs2-linux
-cargo run --release -p cs2metal -- baseline verify ~/cs2metal-kit/cs2-linux          # full
-cargo run --release -p cs2metal -- baseline verify ~/cs2metal-kit/cs2-linux --quick  # fast
+cargo run --release -p cs2metal -- baseline record ~/cs2-metal/data/cs2-linux
+cargo run --release -p cs2metal -- baseline verify ~/cs2-metal/data/cs2-linux          # full
+cargo run --release -p cs2metal -- baseline verify ~/cs2-metal/data/cs2-linux --quick  # fast
 ```
 
 `record` writes the SHA-256, size, and modification time of every file, and the
@@ -287,7 +293,7 @@ difference.
 ### B5. Code scan: `fs` accesses, unwind coverage, TLS models (exists today)
 
 ```bash
-cargo run --release -p cs2metal -- tls scan ~/cs2metal-kit/cs2-linux \
+cargo run --release -p cs2metal -- tls scan ~/cs2-metal/data/cs2-linux \
   --markdown reports/tls-scan.md --json reports/tls-scan.json
 ```
 
@@ -352,7 +358,7 @@ the Linux renderer module, and `cs2metal vulkan compare` crosses them with the
 research with the real one.
 
 ```bash
-cargo run --release -p cs2metal -- vulkan compare ~/cs2metal-kit/cs2-linux \
+cargo run --release -p cs2metal -- vulkan compare ~/cs2-metal/data/cs2-linux \
   reports/vulkaninfo-*.json --markdown reports/vulkan-compare.md
 ```
 
@@ -442,7 +448,7 @@ with `clone` and `futex`: all eight fixtures pass, which **closes Gate 1**.
 ```bash
 CS2METAL_BUILD_HOST=<ssh destination> tools/guest-glibc.sh
 target/x86_64-apple-darwin/debug/cs2metal exec --glibc target/guest-glibc \
-  --library-path ~/cs2metal-kit/sniper/files/lib/x86_64-linux-gnu \
+  --library-path ~/cs2-metal/data/sniper/files/lib/x86_64-linux-gnu \
   target/fixtures/cxx
 ```
 
@@ -454,8 +460,8 @@ The command this roadmap is building toward:
 CS2METAL_BUILD_HOST=<ssh destination> tools/guest-glibc.sh
 cargo build --release --target x86_64-apple-darwin -p cs2metal
 target/x86_64-apple-darwin/release/cs2metal run \
-  --game-dir ~/cs2metal-kit/cs2-linux \
-  --runtime-dir ~/cs2metal-kit/sniper/files \
+  --game-dir ~/cs2-metal/data/cs2-linux \
+  --runtime-dir ~/cs2-metal/data/sniper/files \
   -- -dedicated -insecure +map de_dust2 2> runs/boot.log
 ```
 
@@ -487,8 +493,8 @@ documentation starts it with `-dedicated` (INFERRED for this build; to be confir
 on the real files). A dedicated server needs no window, no SDL video, and no Vulkan:
 
 ```bash
-target/x86_64-apple-darwin/release/cs2metal run --game-dir ~/cs2metal-kit/cs2-linux \
-  --runtime-dir ~/cs2metal-kit/sniper -- -dedicated -insecure +map de_dust2
+target/x86_64-apple-darwin/release/cs2metal run --game-dir ~/cs2-metal/data/cs2-linux \
+  --runtime-dir ~/cs2-metal/data/sniper -- -dedicated -insecure +map de_dust2
 ```
 
 It exercises the loader, the libc route, threads, the file system, physics, and

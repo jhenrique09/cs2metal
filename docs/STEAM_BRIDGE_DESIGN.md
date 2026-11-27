@@ -128,14 +128,14 @@ both sides use the same C++ ABI. (INFERRED from the public headers; verified by 
 | --- | --- |
 | Run the game's own, unmodified `libsteam_api.so` | Fabricate any answer about identity, licences, or sessions |
 | Call Valve's own `steamclient.dylib` from the owner's installation | Read, store, or forward credentials, tokens, or session files |
-| Declare app 730 the way Steam's launcher and Valve's documentation do | Modify, copy, or redistribute any Steam file |
+| Declare app 730 the way Steam's launcher and Valve's documentation do | Modify, copy, or redistribute any Steam file, with one bounded exception: the owner may have the shortcut added to Steam's list of non-Steam games ([decision](STEAM_SHORTCUT_DECISION.md)) |
 | Report "Steam is not running" or a refused app truthfully and stop | Start, script, or automate the Steam client or its sign-in |
 | Launch with `-insecure` by default, keeping the game off VAC-secured servers | Touch Valve Anti-Cheat in any way |
 
 Consequences the owner should expect: while the game runs, the account shows as
 playing Counter-Strike 2, friends can see it, and play time accrues. That is the real
 client doing its job. The Steam overlay was not injected at first, because nothing preloaded it. Since 27
-November 2026 the launcher (`tools/launch.sh`) inserts the macOS client's own
+November 2026 the launcher (`run.sh`) inserts the macOS client's own
 overlay renderer, `gameoverlayrenderer.dylib`, into the host process with
 `DYLD_INSERT_LIBRARIES`, and sets `SteamAppId` and `SteamGameId`, as Steam does for a
 game it starts. The renderer hooks the Metal layer MoltenVK presents on, and Steam

@@ -6,11 +6,11 @@
 #
 #   tools/sdl-shim-names.sh [game_dir]
 #
-# The default game directory is CS2METAL_GAME_DIR, else ~/cs2metal-kit/cs2-linux.
+# The default game directory is CS2METAL_GAME_DIR, else ~/cs2-metal/data/cs2-linux.
 set -euo pipefail
 
 root="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
-game="${1:-${CS2METAL_GAME_DIR:-$HOME/cs2metal-kit/cs2-linux}}"
+game="${1:-${CS2METAL_GAME_DIR:-${CS2METAL_HOME:-$HOME/cs2-metal}/data/cs2-linux}}"
 library="$game/game/bin/linuxsteamrt64/libSDL3.so.0"
 out="$root/target/guest-shims/libSDL3_names.h"
 

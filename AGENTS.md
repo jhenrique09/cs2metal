@@ -15,10 +15,13 @@ The documentation lives in `docs/`, in this repository. Read
 
 ## Current scope
 
-- Milestone M0 is done: repository foundations, the read-only ELF parser, the
-  installation inventory, and platform probes under `spikes/`.
-- `docs/ROADMAP.md` is the ordered path from here to the game's first frame. Work in
-  its step order, and run the probes it puts first before building what they test.
+- The roadmap's goal is met: since 27 November 2026 the game presents in its own
+  window and the owner plays practice matches (`docs/CLIENT_PLAYABLE_2026-11-27.md`).
+  `docs/ROADMAP.md` is the record of the path; `docs/IMPLEMENTATION_PLAN.md` holds
+  what is next, M8's thirty-minute match first.
+- The owner sets the game up with `./install.sh`, builds with `./build.sh`, and
+  plays with `~/cs2-metal/bin/run.sh` (`docs/GETTING_STARTED.md`). Everything
+  outside the checkout lives under `~/cs2-metal`.
 - The target is the native Linux build of Counter-Strike 2 (`game/bin/linuxsteamrt64`).
   The Windows build is out of scope; a Wine-based route already exists elsewhere.
 - Record ideas for later milestones in `docs/FUTURE_WORK.md`; do not add partial
@@ -64,7 +67,11 @@ client: no project tool asks for, reads, stores, or logs one. Each boot runs und
 timeout, its log goes to the ignored `runs/` directory, and tracked files cite only
 what the policy allows from it (counts, system call numbers, public interface
 names). Matchmaking, secure servers, and anything that changes the owner's account
-stay owner actions.
+stay owner actions. So do `run-online.sh` and `run.sh -online`, which start the
+game without `-insecure` (`docs/ONLINE_LAUNCH_DECISION.md`), downloading or updating
+the game with steamcmd, and `create-shortcut.sh --steam`, which writes Steam's list
+of shortcuts (`docs/STEAM_SHORTCUT_DECISION.md`): an agent never runs them. An agent
+may ask steamcmd, signed in anonymously, which build Steam offers.
 
 ## Commits
 

@@ -11,13 +11,13 @@ fn root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
-/// The runtime's C++ libraries: CS2METAL_RUNTIME_LIBS, or the owner's kit.
+/// The runtime's C++ libraries: CS2METAL_RUNTIME_LIBS, or where install.sh puts them.
 fn runtime_libs() -> Option<PathBuf> {
     let dir = std::env::var_os("CS2METAL_RUNTIME_LIBS")
         .map(PathBuf::from)
         .or_else(|| {
             std::env::var_os("HOME")
-                .map(|h| PathBuf::from(h).join("cs2metal-kit/sniper/files/lib/x86_64-linux-gnu"))
+                .map(|h| PathBuf::from(h).join("cs2-metal/data/sniper/files/lib/x86_64-linux-gnu"))
         })?;
     dir.join("libstdc++.so.6").exists().then_some(dir)
 }

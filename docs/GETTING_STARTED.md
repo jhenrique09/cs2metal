@@ -2,162 +2,203 @@
 
 ## Status
 
-Current as of 27 November 2026. This is the owner's checklist for the first session:
-seven steps that put every piece on the Mac and end with the first inventory of the
-Linux build. It covers phases A and B of the [roadmap](ROADMAP.md), which explains
-the reasons behind each step. Nothing here starts the game. The host that runs it
-is built: once these steps are done, the repository's `README.md` gives the command
-that starts the game.
+Current as of 27 November 2026. This is how to set up, start, update, and remove
+Counter-Strike 2 under cs2metal on an Apple silicon Mac, with the scripts at the top
+of the repository.
 
-## Before you begin
+What has been run, on the owner's Apple M1 Max, where the pieces were already
+installed by hand before the scripts existed:
 
-You need an Apple silicon Mac on macOS 26 or newer with Rosetta 2, the Xcode command
-line tools, [rustup](https://rustup.rs), and about 80 GB free. Only step 4 takes
-long: it downloads about 60 GB.
+- `build.sh`, from start to end, including the build of the C library from source
+  in Docker (11 minutes 35 seconds, the checksums matching), the path that takes
+  the library from a directory, and the message when neither is possible.
+- `run.sh`, from `~/cs2-metal/bin`, to the game's menu and a clean quit.
+- `create-shortcut.sh`, without `--steam`.
+- `install.sh`, with every download already done: it found each piece, built, and
+  verified the baseline.
 
-Everything downloaded goes into one directory outside this repository, so that Git
-never sees a game file:
+What has not: the download steps of `install.sh` on an empty Mac (they are the
+commands of the manual setup, which worked), the update of the game by `run.sh`
+(Steam offered no newer build that day), and `create-shortcut.sh --steam`. Expect
+to be the first to run those, and report what happens.
 
-```
-~/cs2metal-kit/
-  steamcmd/     Valve's command-line downloader, with its own sign-in cache
-  cs2-linux/    the Linux build of CS2; cs2metal only ever reads it
-  sniper/       the C++ runtime from Steam Linux Runtime 3.0
-```
+## What you need
 
-Steps 2 and 4 need your Steam credentials. You type them into Valve's own programs;
-no project tool ever sees them. Use the account the
-[policy](ANTI_CHEAT_AND_INTEGRITY_POLICY.md) allows: a secondary one.
+- An Apple silicon Mac on macOS 26 or newer, with about 80 GB free. The download is
+  about 60 GB and takes 71 GB on disk.
+- A Steam account. Use the one the [policy](ANTI_CHEAT_AND_INTEGRITY_POLICY.md)
+  allows: a secondary account.
 
-## 1. Add the x86-64 Rust target
+`install.sh` checks for the rest and says how to install what is missing:
 
-The cs2metal host is an x86-64 process that runs under Rosetta.
+| Needed | For | How |
+| --- | --- | --- |
+| Rosetta 2 | The host is an x86-64 process | `softwareupdate --install-rosetta --agree-to-license` |
+| Xcode command line tools | The compiler driver, `objdump`, `python3` | `xcode-select --install` |
+| rustup | Building the host | <https://rustup.rs> |
+| Docker, running | One step of the build, once: the guest's C library, in a Linux container. Not needed if you have the six libraries already (see [Build](#build)) | [OrbStack](https://orbstack.dev) or Docker Desktop |
+| Vulkan SDK for macOS | MoltenVK, the Vulkan loader, and SDL 3, as x86-64 libraries | The installer from <https://vulkan.lunarg.com/sdk/home>, in its default place, `~/VulkanSDK` |
+| Steam for macOS, signed in | The Steam the game talks to | <https://store.steampowered.com/about/> |
 
-```bash
-rustup target add x86_64-apple-darwin
-```
+**Do not install Counter-Strike 2 from Steam for macOS.** That client downloads the
+game's shared content without the Linux programs, which are what cs2metal runs.
 
-## 2. Install Steam for macOS
+## Install
 
-```bash
-curl -fL -o ~/Downloads/steam.dmg https://cdn.fastly.steamstatic.com/client/installer/steam.dmg
-open ~/Downloads/steam.dmg
-```
-
-Drag Steam to Applications, start it, and sign in.
-
-**Do not install CS2 from this client.** Steam for macOS downloads the shared content
-without the Linux binaries. The client is needed later, as the Steam the game talks
-to at run time.
-
-## 3. Download steamcmd
-
-Valve's command-line downloader, as a tarball from Valve's CDN. Nothing is installed
-system-wide.
+From a checkout of this repository:
 
 ```bash
-mkdir -p ~/cs2metal-kit/steamcmd && cd ~/cs2metal-kit/steamcmd
-curl -sSfL https://steamcdn-a.akamaihd.net/client/installer/steamcmd_osx.tar.gz | tar -xz
+./install.sh
 ```
 
-## 4. Download the Linux build of CS2
+It can be stopped and run again; it skips what is already done. In order, it:
 
-Replace `<account>` with your Steam user name. steamcmd asks for the password and the
-Steam Guard code in the terminal.
+1. Checks the Mac for the things above.
+2. Waits until Steam for macOS is installed, running, and signed in.
+3. Downloads steamcmd, Valve's command-line downloader.
+4. Downloads the Linux build of the game with steamcmd, after asking. steamcmd
+   signs in anonymously, which is enough for this game; set
+   `CS2METAL_STEAM_LOGIN=<account>` to download as your own account, and steamcmd
+   then asks for the password and the Steam Guard code itself. No project script
+   sees a credential.
+5. Downloads the Steam Linux Runtime 3.0 ("sniper"), 305 MB, checks it against
+   Valve's checksum, and keeps the two C++ libraries the game needs.
+6. Runs `./build.sh` (see [Build](#build)).
+7. Records the integrity baseline: the SHA-256 of every game file. cs2metal verifies
+   the installation against it before every start and never writes to it.
+8. Asks whether to make an application shortcut, and whether to add it to Steam.
+
+## Where things are
+
+```
+~/cs2-metal/
+  bin/     cs2metal, the host program
+           guest/               the guest's C library and the shims
+           run.sh, run-online.sh, create-shortcut.sh, and their helpers
+  data/    steamcmd/            Valve's downloader
+           cs2-linux/           the game, read-only to cs2metal
+           cs2-linux.overlay/   everything the game writes into its installation
+           sniper/              the C++ runtime
+           baselines/           the integrity baseline
+           first-launch         marks that the first launch has happened
+  logs/    one log per session
+```
+
+The game's settings and saved configuration are where Steam keeps them for the
+account, under Steam's own `userdata`. Nothing is installed anywhere else, except
+the application shortcut if you ask for one.
+
+## Play
 
 ```bash
-cd ~/cs2metal-kit/steamcmd
-./steamcmd.sh +@sSteamCmdForcePlatformType linux \
-  +force_install_dir ~/cs2metal-kit/cs2-linux \
-  +login <account> \
-  +app_update 730 validate +quit
+~/cs2-metal/bin/run.sh
 ```
 
-- Expect about 60 GB to download and 71 GB on disk.
-- This step is the project's first experiment: nobody is on record using the `linux`
-  platform override from a Mac.
-- If steamcmd reports that there is no subscription, add `+app_license_request 730`
-  before `+app_update` and run it again.
+Steam for macOS must be running and signed in. The game starts offline, with
+`-insecure`. To stop it, quit from its menu or press Ctrl-C in the terminal: both
+let the game shut itself down.
 
-Check the result:
-
-```bash
-file ~/cs2metal-kit/cs2-linux/game/bin/linuxsteamrt64/cs2
-```
-
-The output must say `ELF 64-bit` and `x86-64`.
-
-## 5. Download the C++ runtime
-
-The Steam Linux Runtime 3.0 ("sniper") is public: no sign-in, 305 MB. The command
-extracts only the two libraries the host loads.
-
-```bash
-mkdir -p ~/cs2metal-kit/sniper && cd ~/cs2metal-kit/sniper
-B=https://repo.steampowered.com/steamrt3/images/latest-public-stable
-F='com.valvesoftware.SteamRuntime.Platform-amd64,i386-sniper-runtime.tar.gz'
-curl -fL --http1.1 --retry 5 --retry-all-errors -C - -O "$B/$F" \
-  && curl -fsSL --retry 5 -O "$B/SHA256SUMS" \
-  && grep -F "$F" SHA256SUMS | shasum -a 256 -c - \
-  && tar -xzf "$F" --include '*/x86_64-linux-gnu/libstdc++.so.6*' \
-                   --include '*/x86_64-linux-gnu/libgcc_s.so.1'
-```
-The commands are chained, so a failed download stops before the checksum and the
-extraction. If the transfer is cut, run the same block again: `-C -` resumes the
-partial file instead of starting over.
-
-
-The `shasum` line must end in `OK`, and `files/lib/x86_64-linux-gnu/` must then hold
-`libstdc++.so.6.0.28`, its `libstdc++.so.6` link, and `libgcc_s.so.1`.
-
-## 6. Install the Vulkan SDK and record both drivers
-
-Download the macOS installer from <https://vulkan.lunarg.com/sdk/home> and run it.
-Then save what each driver reports on this Mac, from the cs2metal checkout:
-
-```bash
-mkdir -p reports
-VK_DRIVER_FILES=<MoltenVK ICD manifest from the SDK> \
-  vulkaninfo --json -o reports/vulkaninfo-moltenvk.json
-VK_DRIVER_FILES=<KosmicKrisp ICD manifest from the SDK> \
-  vulkaninfo --json -o reports/vulkaninfo-kosmickrisp.json
-```
-
-`VK_DRIVER_FILES` is the Vulkan loader's variable for choosing a driver. The location
-of the two manifests depends on where the SDK was installed and has not been verified
-on this machine; the SDK's documentation lists it.
-
-## 7. Build cs2metal, record the baseline, and inventory the build
-
-From the cs2metal checkout:
-
-```bash
-tools/check.sh
-cargo build --release
-cargo run --release -p cs2metal -- baseline record ~/cs2metal-kit/cs2-linux
-cargo run --release -p cs2metal -- inventory ~/cs2metal-kit/cs2-linux \
-  --markdown reports/inventory.md --json reports/inventory.json
-cargo run --release -p cs2metal -- inspect ~/cs2metal-kit/cs2-linux/game/bin/linuxsteamrt64/cs2
-```
-
-The baseline records the SHA-256 of every game file in the ignored `baselines/`
-directory, so that every later step can prove the installation is unchanged
-(`baseline verify`). Record it right after the download, before anything else reads
-the installation. The inventory lists everything the game expects from the system,
-and `inspect` shows what kind of executable `cs2` is. The `reports/` directory is ignored by Git: the
-reports are derived from game files and stay local.
-
-## What comes next
-
-With the inventory and Steam in place, three results decide whether the current
-design holds, before the loader is written:
-
-| Result | Where it comes from |
+| Before the game starts, `run.sh` | Turn it off with |
 | --- | --- |
-| The executable type of `cs2`, and the real list of what the host must provide | The `inspect` and `inventory` output of step 7 |
-| Whether Steam for macOS serves app 730 | Probe D1 of the [roadmap](ROADMAP.md), designed in the [Steam bridge design](STEAM_BRIDGE_DESIGN.md) |
-| Whether a Vulkan driver works in an x86-64 process under Rosetta | Probe F1 of the roadmap, with the reports of step 6 |
+| Asks Steam whether there is a newer build and installs it (see [Update](#update)) | `CS2METAL_NO_UPDATE=1` |
+| On the first launch only, sets the game's video settings to its own low preset | `CS2METAL_KEEP_VIDEO_SETTINGS=1` |
+| Loads Steam's overlay (Shift+Tab) into the host | `CS2METAL_NO_OVERLAY=1` |
+| Leaves the opening movie out | `CS2METAL_KEEP_INTRO=1` |
 
-Steps 1, 3, 5, and 7 need no credentials and can be run by an automated contributor.
-Steps 2 and 4 are the owner's alone. In step 6 the download and installation are the
-owner's; the `vulkaninfo` commands can be run by anyone afterwards.
+Arguments go to the engine: `run.sh +map de_dust2`. Diagnostic variables such as
+`CS2METAL_SDL_TRACE=1` and `CS2METAL_VULKAN_TRACE=1` pass through to the host and
+write to the session's log.
+
+`run-online.sh` starts the game without `-insecure`, so that it can join servers
+secured by Valve Anti-Cheat. How that anti-cheat treats this host is unknown. Read
+the [decision record](ONLINE_LAUNCH_DECISION.md) first, and use a secondary account.
+
+## A shortcut
+
+```bash
+~/cs2-metal/bin/create-shortcut.sh            # ~/Applications/Counter-Strike 2.app
+~/cs2-metal/bin/create-shortcut.sh --steam    # and add it to Steam's library
+~/cs2-metal/bin/create-shortcut.sh --online   # an application that runs run-online.sh
+```
+
+The application runs `run.sh`. Its icon is converted on your Mac from the game's own
+icon file; nothing of Valve's is shipped with cs2metal. `--steam` adds it to the
+non-Steam games of every Steam account on the Mac. Steam must be quit for that,
+because it writes its list of shortcuts when it quits; the list is copied first
+([decision](STEAM_SHORTCUT_DECISION.md)).
+
+## Update
+
+- **The game.** `run.sh` compares the installed build with the one Steam offers. If
+  they differ, steamcmd updates the installation and checks every file, the
+  integrity baseline is recorded again for the new build, and the SDL shim is
+  checked against the new game's SDL. If the game's SDL changed, `run.sh` stops and
+  asks for `./build.sh`, which builds the shims again. An update of the game can
+  also break cs2metal itself; nothing checks for that.
+- **cs2metal.** Pull the repository and run `./build.sh`.
+
+## Build
+
+```bash
+./build.sh
+```
+
+It builds three things on this Mac and installs them to `~/cs2-metal/bin`:
+
+1. **The host program**, with cargo, for `x86_64-apple-darwin`.
+2. **The guest's C library**: Debian's glibc 2.31 with the project's patch
+   (`guest/glibc/README.md`), which sends every system call through one slot the
+   host answers. Its six libraries have checksums in the repository, and nothing
+   is installed that does not match them. `build.sh` takes them from the first
+   place that has them:
+   - `target/guest-glibc/` in the checkout, where an earlier build left them;
+   - the directory named by `CS2METAL_GLIBC_FROM`, if you set it: six libraries
+     built on another machine;
+   - a build from source, in a pinned Steam Runtime SDK image with Docker. glibc
+     builds only with GCC and GNU binutils for Linux, so this cannot run on macOS
+     itself. Under emulation on an M1 Max it takes about twelve minutes, once.
+3. **The shims**: small Linux libraries served in place of the game's SDL, the
+   Vulkan loader, and the Steam client library. Apple's clang and the linker that
+   ships with Rust build them in a few seconds, with no container. They are
+   generated from the functions the game's SDL and this Mac's Steam client export,
+   so the game and Steam must be installed first.
+
+So Docker is needed for one step, the first time, and not at all with
+`CS2METAL_GLIBC_FROM`:
+
+```bash
+CS2METAL_GLIBC_FROM=<directory> ./build.sh
+```
+
+`--force-guest` builds the C library from source again, and `--host-only` builds
+and installs only the host program. `tools/check.sh` runs the checks every commit
+must pass.
+
+## Remove
+
+```bash
+rm -rf ~/cs2-metal "$HOME/Applications/Counter-Strike 2.app"
+docker volume rm cs2metal-glibc-work     # only if the C library was built here
+```
+
+That removes the game, the runtime, the logs, and the build's working copy of the
+glibc source. Two things outside it are left: the game's own settings in Steam's
+`userdata/<account>/730`, and, if you added the shortcut to Steam, its entry there
+(remove it from Steam's library).
+
+## If something goes wrong
+
+- **The game does not start, and the log ends with a count of differences.** The
+  installation no longer matches its baseline. If you did not change it, let
+  steamcmd repair it and record the baseline again:
+  `~/cs2-metal/bin/run.sh` does both when Steam offers a different build; otherwise
+  run `./install.sh`, which records a baseline when the old one does not match.
+- **A long black screen at start.** The very first start, and the first after
+  `build.sh` installed a new host program or after the shader caches were lost,
+  compiles the game's shaders for Metal again and can take two minutes. Let it
+  finish: later starts take seconds. Do not force-quit the game while it does.
+- **Stutters in the first matches.** Each kind of scene is compiled the first time
+  it is drawn. They fade as you play.
+- **To report a problem**, attach the session's log from `~/cs2-metal/logs/`, taken
+  with `CS2METAL_SDL_TRACE=1 CS2METAL_VULKAN_TRACE=1` if it concerns input, sound,
+  or frame pacing.
