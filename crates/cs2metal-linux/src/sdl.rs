@@ -392,6 +392,20 @@ pub(crate) fn vulkan_loader() -> Option<String> {
         .or_else(|| Some(format!("{}/lib/libvulkan.1.dylib", vulkan_sdk()?)))
 }
 
+/// Keeps the game's window up when another application takes the focus, unless
+/// the owner sets the hint. The game asks SDL to minimize it, as a Linux game
+/// may; on macOS a minimized window has no drawable, the renderer then waits for
+/// one on the main thread, and the main thread stops handling the events that
+/// would restore the window. An environment variable takes precedence over the
+/// game's own `SDL_SetHint`.
+fn keep_window_on_focus_loss() {
+    const HINT: &str = "SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS";
+    if std::env::var_os(HINT).is_none() {
+        // SAFETY: the host environment; the guest's is separate.
+        unsafe { std::env::set_var(HINT, "0") };
+    }
+}
+
 /// Points the macOS Vulkan loader at the SDK's MoltenVK manifest, in the host
 /// environment, unless the owner names drivers.
 pub(crate) fn prepare_vulkan_environment() {
@@ -462,6 +476,7 @@ pub(crate) fn bind(table: u64, names: u64, count: u64) -> i64 {
         return crate::translate::ENOENT;
     }
     prepare_vulkan_environment();
+    keep_window_on_focus_loss();
     let mut bridge = match Bridge::new() {
         Ok(b) => b,
         Err(_) => return crate::translate::ENOMEM,
