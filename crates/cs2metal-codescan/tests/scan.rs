@@ -179,3 +179,16 @@ fn scans_a_directory_and_renders_a_report_without_the_root() {
     assert!(report.contains("| Modules scanned | 1 |"));
     assert!(report.contains("| `fs:register` accesses | 2 |"));
 }
+
+#[test]
+fn string_instructions_are_not_thread_pointer_reads() {
+    // movsb byte [rdi], fs:[rsi]; outsb dx, fs:[rsi]; ret, with no FDE.
+    let code = [0x64, 0xa4, 0x64, 0x6e, 0xc3];
+    let m = scan(
+        ElfBuilder::shared_object("libdata.so")
+            .code(&code, &[])
+            .code_sections(&[(0, code.len() as u64)]),
+    );
+    assert_eq!(m.uncovered_fs.get(&FsAccess::Unaddressed), Some(&2));
+    assert_eq!(m.uncovered_fs.get(&FsAccess::ThreadPointer), None);
+}

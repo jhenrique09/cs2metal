@@ -78,17 +78,17 @@ pub fn markdown(entries: &[Entry]) -> String {
     let _ = writeln!(w, "## Modules\n");
     let _ = writeln!(
         w,
-        "| Module | Code KB | Bounds | Covered | fs:0 | 0x28 | 0x30 | const | reg | Uncovered fs | Bad | TLS | Clean |"
+        "| Module | Code KB | Bounds | Covered | fs:0 | 0x28 | 0x30 | const | reg | other | Uncovered fs | Bad | TLS | Clean |"
     );
     let _ = writeln!(
         w,
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
     );
     for (path, m) in &scanned {
         let n = |k: FsAccess| m.fs_accesses.get(&k).copied().unwrap_or(0);
         let _ = writeln!(
             w,
-            "| `{path}` | {} | {} | {:.1}% | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+            "| `{path}` | {} | {} | {:.1}% | {} | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
             m.code_bytes / 1024,
             if m.code_from_sections {
                 "sections"
@@ -101,6 +101,7 @@ pub fn markdown(entries: &[Entry]) -> String {
             n(FsAccess::PointerGuard),
             n(FsAccess::ConstantOffset),
             n(FsAccess::RegisterRelative),
+            n(FsAccess::Unaddressed),
             by_kind(&m.uncovered_fs),
             m.decode_failures,
             m.tls.summary(&m.fs_accesses).join(", "),

@@ -39,6 +39,10 @@ pub enum FsAccess {
     ConstantOffset,
     /// An offset held in a register: initial-exec TLS, after a GOT load.
     RegisterRelative,
+    /// A string instruction (`movs`, `cmps`, `outs`, ...) reading through `fs:rsi`,
+    /// or an `fs` prefix on an instruction without a memory operand. Compilers do
+    /// not emit these; in a linear sweep they mark data decoded as code.
+    Unaddressed,
 }
 
 impl FsAccess {
@@ -49,15 +53,17 @@ impl FsAccess {
             Self::PointerGuard => "fs:0x30",
             Self::ConstantOffset => "fs:constant",
             Self::RegisterRelative => "fs:register",
+            Self::Unaddressed => "fs:unaddressed",
         }
     }
 
-    pub const ALL: [Self; 5] = [
+    pub const ALL: [Self; 6] = [
         Self::ThreadPointer,
         Self::StackGuard,
         Self::PointerGuard,
         Self::ConstantOffset,
         Self::RegisterRelative,
+        Self::Unaddressed,
     ];
 }
 

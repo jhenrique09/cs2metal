@@ -1,6 +1,6 @@
 use cs2metal_elf::consts::PT_LOAD;
 use cs2metal_elf::{Elf, FunctionRange, executable_sections, unwind_ranges};
-use iced_x86::{Decoder, DecoderOptions, Instruction, Register};
+use iced_x86::{Decoder, DecoderOptions, Instruction, OpKind, Register};
 
 use crate::{FsAccess, ModuleScan, TlsModels};
 
@@ -18,6 +18,12 @@ fn is_legacy_prefix(b: u8) -> bool {
 }
 
 fn classify(instruction: &Instruction) -> FsAccess {
+    // String instructions address through rsi/rdi without a ModRM memory operand;
+    // iced then reports no base and a zero displacement, which is not fs:0.
+    let addressed = (0..instruction.op_count()).any(|i| instruction.op_kind(i) == OpKind::Memory);
+    if !addressed {
+        return FsAccess::Unaddressed;
+    }
     if instruction.memory_base() != Register::None || instruction.memory_index() != Register::None {
         return FsAccess::RegisterRelative;
     }
