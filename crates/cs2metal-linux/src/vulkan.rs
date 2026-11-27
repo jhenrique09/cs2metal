@@ -113,6 +113,7 @@ fn wrapper(name: &[u8]) -> Option<u64> {
         b"vkCreateDevice" => create_device as *const (),
         b"vkCreateDebugUtilsMessengerEXT" => create_debug_utils_messenger as *const (),
         b"vkCreateDebugReportCallbackEXT" => create_debug_report_callback as *const (),
+        b"vkEnumerateDeviceExtensionProperties" => enumerate_device_extensions as *const (),
         _ => return None,
     };
     Some(f as u64)
@@ -367,6 +368,76 @@ extern "C" fn create_device(physical: u64, info: u64, _allocator: u64, out: u64)
         eprintln!("cs2metal: vkCreateDevice returned {result}");
     }
     result
+}
+
+/// Device extensions hidden from the game: `CS2METAL_VULKAN_HIDE`, a comma-separated
+/// list.
+fn hidden_extensions() -> &'static [CString] {
+    static HIDDEN: std::sync::OnceLock<Vec<CString>> = std::sync::OnceLock::new();
+    HIDDEN.get_or_init(|| {
+        std::env::var("CS2METAL_VULKAN_HIDE")
+            .unwrap_or_default()
+            .split(',')
+            .filter(|n| !n.is_empty())
+            .filter_map(|n| CString::new(n.trim()).ok())
+            .collect()
+    })
+}
+
+/// `vkEnumerateDeviceExtensionProperties(physical, layer, count, properties)`,
+/// without the hidden extensions.
+extern "C" fn enumerate_device_extensions(
+    physical: u64,
+    layer: *const c_char,
+    count: *mut u32,
+    properties: *mut u8,
+) -> i32 {
+    const PROPERTIES: usize = 260;
+    let f = loader_function(
+        INSTANCE.lock().map_or(0, |i| *i),
+        c"vkEnumerateDeviceExtensionProperties",
+    );
+    if f == 0 || count.is_null() {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    // SAFETY: the loader's vkEnumerateDeviceExtensionProperties.
+    let f: extern "C" fn(u64, *const c_char, *mut u32, *mut u8) -> i32 =
+        unsafe { std::mem::transmute(f as usize) };
+    let hidden = hidden_extensions();
+    if hidden.is_empty() {
+        return f(physical, layer, count, properties);
+    }
+    let mut all = 0u32;
+    if f(physical, layer, &mut all, std::ptr::null_mut()) != VK_SUCCESS {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    let mut buf = vec![0u8; PROPERTIES * all as usize];
+    let result = f(physical, layer, &mut all, buf.as_mut_ptr());
+    if result < 0 {
+        return result;
+    }
+    let kept: Vec<&[u8]> = buf
+        .chunks(PROPERTIES)
+        .take(all as usize)
+        .filter(|p| {
+            CStr::from_bytes_until_nul(&p[..256])
+                .map_or(true, |n| !hidden.iter().any(|h| h.as_c_str() == n))
+        })
+        .collect();
+    // SAFETY: the guest passes a count, and room for that many when properties
+    // is not null.
+    unsafe {
+        if properties.is_null() {
+            *count = kept.len() as u32;
+            return VK_SUCCESS;
+        }
+        let room = (*count as usize).min(kept.len());
+        for (i, p) in kept.iter().take(room).enumerate() {
+            std::ptr::copy_nonoverlapping(p.as_ptr(), properties.add(i * PROPERTIES), PROPERTIES);
+        }
+        *count = room as u32;
+        if room < kept.len() { 5 } else { VK_SUCCESS } // VK_INCOMPLETE
+    }
 }
 
 /// The instance the game created, for instance-level lookups the bridge makes.

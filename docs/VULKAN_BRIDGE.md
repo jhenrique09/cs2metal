@@ -44,6 +44,9 @@ unchanged; MoltenVK does not call them.
 
 `CS2METAL_VULKAN_TRACE=1` logs the instance and device extensions the renderer
 requests, the measurement Q-7 asks for.
+`CS2METAL_VULKAN_HIDE`, a comma-separated list of device extension names, removes
+them from what `vkEnumerateDeviceExtensionProperties` reports to the game, to test
+whether the renderer works better without one, such as `VK_KHR_present_wait`.
 
 ## Validation
 
