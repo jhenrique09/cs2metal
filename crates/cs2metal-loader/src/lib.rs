@@ -25,8 +25,8 @@ mod namespace;
 mod tls;
 
 pub use bridge::{
-    Bridge, HostBlock, SyscallFrame, SyscallHandler, attach, enter_process, neutral,
-    set_syscall_handler, syscall_entry,
+    Bridge, HostBlock, SyscallFrame, SyscallHandler, attach, enter_process, leave_guest_thread,
+    neutral, run_guest_thread, set_syscall_handler, syscall_entry,
 };
 pub use error::{Error, Result};
 pub use image::{FsReport, FsRewrite, Image, Import};

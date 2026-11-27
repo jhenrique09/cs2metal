@@ -154,12 +154,16 @@ the T-001 counters match an independent count of `fs` prefixes in their code.
   runs `hello`, `stack_guard`, `ifunc`, `scope`, `dlopen`, and `cxx` (C++
   exceptions across modules on the runtime's libstdc++) with their Linux output,
   under Rosetta 2, tested by `tools/check.sh`.
-- [ ] Threads (`clone`, `futex` on `__ulock_wait` and `__ulock_wake`), signals, and
-  synthesized `/proc`, for the `tls`, `stack_guard`, `cxx`, `dlopen`, and `ifunc`
-  fixtures.
+- [x] Threads (`clone`, `futex`) for the `tls` and `tlsprobe` fixtures. Done on
+  27 November 2026: each guest thread runs on its own host thread with its own host
+  block, resumes from `clone` as the kernel would, and clears its thread id from the
+  host stack when it exits; `futex` sits on the public `os_sync_wait_on_address`
+  family. Both fixtures give their Linux output, 30 runs out of 30 each.
+- [ ] Signals and synthesized `/proc`, as the engine boot needs them.
 
 Gate: C++ fixtures that throw exceptions across modules, use threads, and read files
-pass with the guest libstdc++ and libgcc_s.
+pass with the guest libstdc++ and libgcc_s. Passed on 27 November 2026: all eight
+fixtures, under Rosetta 2, on the rebuilt glibc and the runtime's C++ libraries.
 
 ### M4: engine boot, offline
 

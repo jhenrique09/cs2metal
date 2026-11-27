@@ -432,8 +432,8 @@ the same day ([decision](LIBC_ROUTE_DECISION.md)).
 First slice, done on 27 November 2026: `tools/guest-glibc.sh` builds Debian's glibc
 2.31 with the slot, and `cs2metal exec` starts its ld.so as a kernel would and
 answers its system calls. Six of the eight fixtures, the C++ one included, print
-their Linux output under Rosetta 2. The two that use threads wait for `clone` and
-`futex`, which close Gate 1 with them.
+their Linux output under Rosetta 2. The two that use threads followed the same day
+with `clone` and `futex`: all eight fixtures pass, which **closes Gate 1**.
 
 ```bash
 CS2METAL_BUILD_HOST=<ssh destination> tools/guest-glibc.sh

@@ -273,8 +273,11 @@ fn answer(f: &mut SyscallFrame) -> u64 {
             },
             28 => 0, // madvise: advice only
             39 => i64::from(libc::getpid()),
-            60 | 231 => {
-                // exit, exit_group: one guest thread for now, so both end the process.
+            24 => i64::from(libc::sched_yield()),
+            56 => crate::threads::clone(f),
+            60 => crate::threads::exit_thread(a0),
+            231 => {
+                // exit_group ends the process, whatever thread calls it.
                 let _ = std::io::Write::flush(&mut std::io::stdout());
                 std::process::exit(a0 as i32)
             }
@@ -300,8 +303,9 @@ fn answer(f: &mut SyscallFrame) -> u64 {
             102 | 107 => i64::from(libc::getuid()),
             104 | 108 => i64::from(libc::getgid()),
             158 => arch_prctl(a0, a1),
-            186 | 218 => i64::from(libc::getpid()), // gettid, set_tid_address: one thread
-            202 => 0,                               // futex: one thread, nothing to wait for
+            186 => crate::threads::gettid(),
+            202 => crate::threads::futex(a0, a1, a2, a3, f.arg4, f.arg5),
+            218 => crate::threads::set_tid_address(a0),
             228 => clock_gettime(a0, a1),
             257 => match guest_str(a1) {
                 Some(p) => result(i64::from(libc::openat(
@@ -325,7 +329,17 @@ fn answer(f: &mut SyscallFrame) -> u64 {
                     EBADF
                 }
             }
-            273 => 0, // set_robust_list: one thread
+            273 => 0, // set_robust_list: recorded as done; robust futexes are not emulated
+            204 => {
+                // sched_getaffinity: every CPU the host reports, as a mask.
+                let n = std::thread::available_parallelism().map_or(1, |n| n.get());
+                let bytes = (a1 as usize).min(128);
+                std::ptr::write_bytes(a2 as *mut u8, 0, bytes);
+                for cpu in 0..n.min(bytes * 8) {
+                    *((a2 as *mut u8).add(cpu / 8)) |= 1 << (cpu % 8);
+                }
+                bytes as i64
+            }
             302 => prlimit64(a1, a2, a3),
             318 => {
                 libc::arc4random_buf(a0 as *mut _, a1 as usize);

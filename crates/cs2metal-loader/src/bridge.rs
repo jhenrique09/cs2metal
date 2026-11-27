@@ -54,6 +54,8 @@ pub(crate) mod host {
     pub const GUEST_TP: u64 = 0x8;
     /// The next free frame of the host thunk's stack.
     pub const BRIDGE_TOP: u64 = 0x10;
+    /// The host stack pointer to return to when a guest thread ends.
+    pub const SAVED_RSP: u64 = 0x18;
     /// The thunk's frames, 64 bytes each, to the end of the block: 63 nested
     /// guest-to-host calls per thread.
     pub const BRIDGE_FRAMES: u64 = 0x40;
@@ -73,6 +75,10 @@ pub struct SyscallFrame {
     pub arg2: u64,
     pub arg1: u64,
     pub arg0: u64,
+    pub saved_rbp: u64,
+    pub saved_rbx: u64,
+    /// Where the guest resumes: the instruction after its `call` through the slot.
+    pub return_address: u64,
 }
 
 /// Answers a guest system call in the host domain; the result goes to `rax`, a
@@ -205,9 +211,49 @@ mod imp {
         dispatch = sym super::dispatch,
     );
 
+    // A guest thread made by clone: saves the host's callee-saved registers and
+    // stack pointer in the host block, then enters the guest at rip with GS at
+    // tp, rsp at the guest stack, and rax 0, as a new Linux thread returns from
+    // clone. leave_guest_thread comes back here, on the host stack, with the
+    // thread's exit status. Arguments: rdi tp, rsi rip, rdx rsp, rcx host block.
+    core::arch::global_asm!(
+        ".p2align 4",
+        ".globl _cs2metal_run_guest_thread",
+        "_cs2metal_run_guest_thread:",
+        "push rbx",
+        "push rbp",
+        "push r12",
+        "push r13",
+        "push r14",
+        "push r15",
+        "mov qword ptr [rcx + {saved}], rsp",
+        "mov r12, rsi",
+        "mov r13, rdx",
+        "mov eax, 0x3000003",
+        "syscall",
+        "mov rsp, r13",
+        "xor eax, eax",
+        "jmp r12",
+        ".p2align 4",
+        ".globl _cs2metal_leave_guest_thread",
+        "_cs2metal_leave_guest_thread:",
+        "mov rsp, qword ptr [rdi + {saved}]",
+        "mov rax, rsi",
+        "pop r15",
+        "pop r14",
+        "pop r13",
+        "pop r12",
+        "pop rbp",
+        "pop rbx",
+        "ret",
+        saved = const host::SAVED_RSP,
+    );
+
     unsafe extern "C" {
         fn cs2metal_host_thunk();
         fn cs2metal_syscall_entry();
+        pub(crate) fn cs2metal_run_guest_thread(tp: u64, rip: u64, rsp: u64, block: u64) -> u64;
+        pub(crate) fn cs2metal_leave_guest_thread(block: u64, status: u64) -> !;
     }
 
     pub(crate) fn thunk_entry() -> u64 {
@@ -456,6 +502,47 @@ pub unsafe fn attach(tp: u64, block: &HostBlock) {
 pub unsafe fn enter_process(tp: u64, entry: u64, stack: u64) -> ! {
     // SAFETY: the caller's contract.
     unsafe { imp::enter_process(tp, entry, stack) }
+}
+
+/// Runs a guest thread made by `clone` on the calling host thread until it calls
+/// `exit`, and returns its exit status, back on the host stack.
+///
+/// # Safety
+///
+/// `tp` must be the new thread's control block, attached to `block`, which must
+/// belong to the calling thread; `rip` and `rsp` are where the guest resumes, as
+/// the kernel would resume a new thread returning from `clone`.
+pub unsafe fn run_guest_thread(tp: u64, rip: u64, rsp: u64, block: &HostBlock) -> u64 {
+    #[cfg(target_arch = "x86_64")]
+    {
+        // SAFETY: the caller's contract.
+        unsafe { imp::cs2metal_run_guest_thread(tp, rip, rsp, block.address()) }
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        let _ = (tp, rip, rsp, block);
+        0
+    }
+}
+
+/// Ends the guest thread that `run_guest_thread` started on this host thread:
+/// back to the host stack, where `run_guest_thread` returns `status`.
+///
+/// # Safety
+///
+/// Must be called in the host domain, from a system call of the guest thread
+/// that `run_guest_thread` runs on this host thread with `block`.
+pub unsafe fn leave_guest_thread(block: &HostBlock, status: u64) -> ! {
+    #[cfg(target_arch = "x86_64")]
+    {
+        // SAFETY: the caller's contract.
+        unsafe { imp::cs2metal_leave_guest_thread(block.address(), status) }
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        let _ = (block, status);
+        std::process::abort()
+    }
 }
 
 /// Generated stubs that enter host functions through the host thunk.

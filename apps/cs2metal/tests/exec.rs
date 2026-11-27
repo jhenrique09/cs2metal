@@ -95,3 +95,13 @@ fn dlopen() {
 fn cxx() {
     run("cxx", &[], true);
 }
+
+#[test]
+fn tls_from_four_threads() {
+    run("tls", &[], false);
+}
+
+#[test]
+fn tlsprobe_from_four_threads() {
+    run("tlsprobe", &[], false);
+}

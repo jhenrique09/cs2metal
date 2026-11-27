@@ -49,12 +49,14 @@ pub fn result(value: i64) -> i64 {
 }
 
 pub const EBADF: i64 = -9;
+pub const EAGAIN: i64 = -11;
 pub const EACCES: i64 = -13;
 pub const EFAULT: i64 = -14;
 pub const EINVAL: i64 = -22;
 pub const ENOTTY: i64 = -25;
 pub const ERANGE: i64 = -34;
 pub const ENOSYS: i64 = -38;
+pub const ETIMEDOUT: i64 = -110;
 
 /// `AT_FDCWD`, which Linux spells -100 and macOS -2.
 pub fn dirfd(linux: i64) -> libc::c_int {

@@ -176,5 +176,5 @@ private facts the bridge relies on are discovered at run time, never hard-coded.
 | `cs2metal-integrity` | Baseline and verification | M1, done |
 | `cs2metal-codescan` | `fs` accesses, unwind coverage, TLS models | M1, done |
 | `cs2metal-loader` | Mapping, relocation, TLS, T-001, the GS bridge (`unsafe` allowed) | M2, three slices: one module, a symbol scope, TLS and the bridge |
-| `cs2metal-linux` | Process start and the Linux system call layer (`unsafe` allowed) | M3, first slice: one thread, the system calls the single-threaded fixtures use |
+| `cs2metal-linux` | Process start and the Linux system call layer (`unsafe` allowed) | M3: process start, files, memory with T-001, threads, futex; all eight fixtures pass |
 | `cs2metal-platform` | SDL, Vulkan, and Steam substitutions | M5 to M7 |
