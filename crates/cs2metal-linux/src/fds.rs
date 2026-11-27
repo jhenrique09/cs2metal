@@ -121,6 +121,16 @@ pub(crate) fn write(fd: libc::c_int, buf: u64, len: u64) -> Option<i64> {
     Some(8)
 }
 
+/// Records an eventfd's non-blocking mode set through `fcntl(F_SETFL)`, since its
+/// reads wait on the counter, not on the pipe.
+pub(crate) fn set_nonblocking(fd: libc::c_int, nonblocking: bool) {
+    if let Ok(mut events) = EVENTS.lock() {
+        if let Some(event) = events.as_mut().and_then(|e| e.get_mut(&fd)) {
+            event.nonblocking = nonblocking;
+        }
+    }
+}
+
 /// Forgets an eventfd being closed, closing its pipe's other end.
 pub(crate) fn close(fd: libc::c_int) {
     if let Ok(mut events) = EVENTS.lock() {

@@ -310,11 +310,24 @@ fn answer(f: &mut SyscallFrame) -> u64 {
             }
             63 => uname(a0),
             72 => match a1 {
-                1 | 2 => result(i64::from(libc::fcntl(
+                // F_DUPFD, F_GETFD, F_SETFD: the same numbers and values.
+                0..=2 => result(i64::from(libc::fcntl(
                     fd,
                     a1 as libc::c_int,
                     a2 as libc::c_int,
                 ))),
+                1030 => result(i64::from(libc::fcntl(
+                    fd,
+                    libc::F_DUPFD_CLOEXEC,
+                    a2 as libc::c_int,
+                ))),
+                4 => {
+                    // F_SETFL: only O_APPEND and O_NONBLOCK change, as on Linux
+                    // (O_ASYNC and O_DIRECT are not supported).
+                    let flags = translate::open_flags(a2 & 0o6000);
+                    crate::fds::set_nonblocking(fd, flags & libc::O_NONBLOCK != 0);
+                    result(i64::from(libc::fcntl(fd, libc::F_SETFL, flags)))
+                }
                 3 => {
                     let flags = libc::fcntl(fd, libc::F_GETFL);
                     if flags < 0 {
@@ -376,4 +389,51 @@ fn answer(f: &mut SyscallFrame) -> u64 {
         }
     };
     value as u64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Answers system call `number` with Linux arguments, as the guest would make it.
+    fn call(number: u64, args: [u64; 6]) -> i64 {
+        let mut frame = SyscallFrame {
+            number,
+            arg0: args[0],
+            arg1: args[1],
+            arg2: args[2],
+            arg3: args[3],
+            arg4: args[4],
+            arg5: args[5],
+            saved_rbp: 0,
+            saved_rbx: 0,
+            return_address: 0,
+        };
+        answer(&mut frame) as i64
+    }
+
+    #[test]
+    fn fcntl_sets_status_flags_and_duplicates_close_on_exec() {
+        let mut fds = [0 as libc::c_int; 2];
+        // SAFETY: pipe writes two descriptors into the array.
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0);
+        let fd = fds[0] as u64;
+        const O_NONBLOCK: u64 = 0o4000;
+        assert_eq!(call(72, [fd, 4, O_NONBLOCK, 0, 0, 0]), 0, "F_SETFL");
+        assert_eq!(
+            call(72, [fd, 3, 0, 0, 0, 0]) as u64 & O_NONBLOCK,
+            O_NONBLOCK
+        );
+        let copy = call(72, [fd, 1030, 100, 0, 0, 0]);
+        assert!(copy >= 100, "F_DUPFD_CLOEXEC gave {copy}");
+        assert_eq!(
+            call(72, [copy as u64, 1, 0, 0, 0, 0]),
+            1,
+            "FD_CLOEXEC is set"
+        );
+        for f in [fds[0], fds[1], copy as libc::c_int] {
+            // SAFETY: descriptors this test made.
+            unsafe { libc::close(f) };
+        }
+    }
 }
