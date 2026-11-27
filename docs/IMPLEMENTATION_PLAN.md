@@ -74,9 +74,12 @@ explicitly before every commit.
 - [ ] **Owner action:** install the Vulkan SDK for macOS and record `vulkaninfo` for
   each driver (roadmap step A6).
 
-- [ ] `cs2metal tls scan` (roadmap step B5): `fs` accesses by kind, unwind-table
+- [x] `cs2metal tls scan` (roadmap step B5): `fs` accesses by kind, unwind-table
   coverage of executable bytes, uncovered `fs` prefixes, decoder failures, and TLS
-  models per module.
+  models per module. Built on 27 November 2026 on `.eh_frame` range parsing in
+  `cs2metal-elf` and the iced-x86 decoder: 6 library tests on hand-assembled code, a
+  command-line test, and agreement with `objdump` on five public runtime libraries.
+- [ ] Run it on the real Linux build.
 
 Gate (Gate 0 of the [roadmap](ROADMAP.md), with probes H-2 and F1): the inventory
 and the code scan answer Q-1 to Q-5 and measure T-001's coverage on the real modules,

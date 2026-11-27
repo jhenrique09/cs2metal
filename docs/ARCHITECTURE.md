@@ -154,6 +154,7 @@ private facts the bridge relies on are discovered at run time, never hard-coded.
 | `cs2metal-inventory` | Installation scan and host requirements | M0, done |
 | `cs2metal` (app) | Command-line front end | M0, `inspect` and `inventory` |
 | `cs2metal-integrity` | Baseline and verification | M1, done |
+| `cs2metal-codescan` | `fs` accesses, unwind coverage, TLS models | M1, done |
 | `cs2metal-loader` | Mapping, relocation, TLS, bridge (`unsafe` allowed) | M2 |
 | `cs2metal-glibc` | glibc ABI layer | M3 |
 | `cs2metal-platform` | SDL, Vulkan, and Steam substitutions | M5 to M7 |

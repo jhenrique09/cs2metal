@@ -16,6 +16,7 @@ that changes it.
 | Repository, check suite, policy, licence | Done |
 | ELF parser, `cs2metal inspect`, `cs2metal inventory` | Done |
 | Integrity baseline, `cs2metal baseline record` and `verify` | Done |
+| Code scan, `cs2metal tls scan` | Done; validated on public runtime libraries |
 | Rosetta facts: no `fs` base, GS swap works | Measured ([probe](ROSETTA_SEGMENT_PROBE_2026-11-26.md)) |
 | Vulkan needs against both drivers, from public data | Researched ([report](VULKAN_REQUIREMENTS_RESEARCH_2026-11-27.md)) |
 | Steam bridge | Designed, unproven ([design](STEAM_BRIDGE_DESIGN.md)) |
@@ -262,7 +263,12 @@ only the files whose size or modification time changed.
 State: built on 27 November 2026. Hashing runs at about 430 MB/s per file on the
 development machine, on all cores at once.
 
-### B5. Code scan: `fs` accesses, unwind coverage, TLS models (to build, M)
+### B5. Code scan: `fs` accesses, unwind coverage, TLS models (exists today)
+
+```bash
+cargo run --release -p cs2metal -- tls scan ~/cs2metal-kit/cs2-linux \
+  --markdown reports/tls-scan.md --json reports/tls-scan.json
+```
 
 `cs2metal tls scan <file-or-dir>` decodes, read-only, every function that the
 `.eh_frame` unwind tables describe in each executable segment, and reports per
@@ -281,7 +287,12 @@ module:
 That is the per-module answer to Q-5 that the inventory alone cannot give, and the
 coverage measurement the [TLS decision](TLS_UNDER_ROSETTA_DECISION.md) needs before
 it can be accepted. Detailed reports stay in `reports/`; tracked documents record
-counts only.
+counts only. It exits with status 4 when any module's rewrite is not clean.
+
+State: built on 27 November 2026 and validated against `objdump` on public Steam
+Linux Runtime libraries: the `fs` counts match exactly, and glibc's hand-written
+assembly has no `fs` access outside the unwind ranges
+([code scan of the runtime](CODE_SCAN_RUNTIME_2026-11-27.md)).
 
 ### B4. Static Vulkan scan (to build, S)
 

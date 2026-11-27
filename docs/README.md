@@ -31,6 +31,7 @@ as the code. It began as a separate repository and was merged, with its history,
 | --- | --- |
 | [Feasibility research, 26 November 2026](FEASIBILITY_RESEARCH_2026-11-26.md) | Prior art, what is known about the Linux build, platform facts, open questions Q-1 to Q-9. |
 | [Rosetta segment probe, 26 November 2026](ROSETTA_SEGMENT_PROBE_2026-11-26.md) | No `fs` base is possible under Rosetta; the GS swap works at 520 ns per pair on an M1 Max. |
+| [Code scan of the Steam Linux Runtime, 27 November 2026](CODE_SCAN_RUNTIME_2026-11-27.md) | `cs2metal tls scan` matches `objdump` exactly on five runtime libraries; no `fs` access lies outside the unwind tables, even in glibc's assembly. |
 | [Steam client probe, 27 November 2026](STEAM_CLIENT_PROBE_2026-11-27.md) | The macOS client library has an x86-64 slice and exports the expected boundary: hypothesis H-1 holds. |
 | [Vulkan requirements research, 27 November 2026](VULKAN_REQUIREMENTS_RESEARCH_2026-11-27.md) | The 71 extensions the CS2 renderer names, against MoltenVK and KosmicKrisp; what the game configuration requires; what is still unmeasured. |
 | [Route and effort review, 27 November 2026](ROUTE_AND_EFFORT_REVIEW_2026-11-27.md) | Owner-requested assessment of the chosen route, its technical gates, alternative libc strategies, Native VIctory reuse, and realistic effort. |

@@ -9,6 +9,7 @@ publish.workspace = true
 
 [dependencies]
 clap.workspace = true
+cs2metal-codescan.workspace = true
 cs2metal-elf.workspace = true
 cs2metal-integrity.workspace = true
 cs2metal-inventory.workspace = true

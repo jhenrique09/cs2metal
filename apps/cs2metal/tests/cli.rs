@@ -139,3 +139,43 @@ fn baseline_records_refuses_to_overwrite_and_verifies() {
     assert_eq!(out.status.code(), Some(4));
     assert!(String::from_utf8_lossy(&out.stdout).contains("modified: bin/cs2"));
 }
+
+#[test]
+fn tls_scan_reports_and_signals_an_unclean_module() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let clean = [0x64, 0x48, 0x8b, 0x04, 0x25, 0x28, 0, 0, 0, 0xc3];
+    let lib = dir.path().join("libclean.so");
+    let bytes = ElfBuilder::shared_object("libclean.so")
+        .code(&clean, &[(0, clean.len() as u64)])
+        .build();
+    fs::write(&lib, bytes).expect("write");
+    let out = cs2metal()
+        .args(["tls", "scan"])
+        .arg(&lib)
+        .output()
+        .expect("run");
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(String::from_utf8_lossy(&out.stdout).contains("| `fs:0x28` accesses | 1 |"));
+
+    let asm = dir.path().join("libasm.so");
+    let bytes = ElfBuilder::shared_object("libasm.so")
+        .code(&[0x64, 0x8b, 0x00, 0xc3], &[])
+        .build();
+    fs::write(&asm, bytes).expect("write");
+    let report = dir.path().join("reports/tls.md");
+    let out = cs2metal()
+        .args(["tls", "scan"])
+        .arg(dir.path())
+        .arg("--markdown")
+        .arg(&report)
+        .output()
+        .expect("run");
+    assert_eq!(out.status.code(), Some(4));
+    let text = fs::read_to_string(report).expect("report");
+    assert!(text.contains("| Modules whose rewrite is clean | 1 |"));
+}

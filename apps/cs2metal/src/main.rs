@@ -16,7 +16,8 @@ use cs2metal_integrity::{Baseline, Mode};
 /// Where baselines go by default: an ignored directory of the checkout.
 const DEFAULT_BASELINE: &str = "baselines/cs2-linux.json";
 
-/// Exit status of `baseline verify` when the installation differs from its baseline.
+/// Exit status of `baseline verify` when the installation differs from its baseline,
+/// and of `tls scan` when a module's rewrite is not clean.
 const EXIT_MISMATCH: u8 = 4;
 
 #[derive(Debug, Parser)]
@@ -53,6 +54,27 @@ enum Command {
     Baseline {
         #[command(subcommand)]
         action: BaselineAction,
+    },
+    /// Thread-local storage analysis of guest code.
+    Tls {
+        #[command(subcommand)]
+        action: TlsAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum TlsAction {
+    /// Scan an ELF file, or every ELF file under a directory, for fs accesses, unwind
+    /// coverage, and TLS models. Exits with status 4 when any module's rewrite is
+    /// not clean.
+    Scan {
+        path: PathBuf,
+        /// Write the full scan as JSON to this file.
+        #[arg(long)]
+        json: Option<PathBuf>,
+        /// Write the Markdown report to this file instead of standard output.
+        #[arg(long)]
+        markdown: Option<PathBuf>,
     },
 }
 
@@ -127,6 +149,44 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             Ok(ExitCode::SUCCESS)
         }
         Command::Baseline { action } => baseline(action),
+        Command::Tls {
+            action:
+                TlsAction::Scan {
+                    path,
+                    json,
+                    markdown,
+                },
+        } => {
+            let entries = cs2metal_codescan::scan_path(&path)
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+            if let Some(out) = json {
+                let text = serde_json::to_string_pretty(&entries).map_err(|e| e.to_string())?;
+                write_report(&out, &text)?;
+            }
+            let report = cs2metal_codescan::markdown(&entries);
+            match markdown {
+                Some(out) => write_report(&out, &report)?,
+                None => print!("{report}"),
+            }
+            let scanned: Vec<_> = entries
+                .iter()
+                .filter_map(|e| e.result.as_ref().ok())
+                .collect();
+            let clean = scanned.iter().filter(|m| m.rewrite_is_clean()).count();
+            eprintln!(
+                "cs2metal: {} modules scanned, {} clean, {} failed to parse",
+                scanned.len(),
+                clean,
+                entries.len() - scanned.len()
+            );
+            Ok(
+                if clean == scanned.len() && scanned.len() == entries.len() {
+                    ExitCode::SUCCESS
+                } else {
+                    ExitCode::from(EXIT_MISMATCH)
+                },
+            )
+        }
     }
 }
 

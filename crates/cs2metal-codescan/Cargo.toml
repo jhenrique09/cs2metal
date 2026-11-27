@@ -1,0 +1,20 @@
+[package]
+name = "cs2metal-codescan"
+description = "Read-only scan of guest code: fs accesses, unwind coverage, TLS models"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+cs2metal-elf.workspace = true
+iced-x86.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+cs2metal-elf = { workspace = true, features = ["test-support"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true
