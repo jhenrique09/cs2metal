@@ -68,6 +68,8 @@ pub struct ElfBuilder {
     flags: u64,
     flags_1: u64,
     code: Option<Code>,
+    /// `(offset, length)` of each executable section inside the code bytes.
+    code_sections: Option<Vec<(u64, u64)>>,
     /// Use a C++-style CIE ("zPLR") with an indirect personality pointer.
     personality: bool,
 }
@@ -92,6 +94,7 @@ impl ElfBuilder {
             flags: 0,
             flags_1: 0,
             code: None,
+            code_sections: None,
             personality: false,
         }
     }
@@ -259,6 +262,14 @@ impl ElfBuilder {
     /// assembly. The rest of the file then loads without execute permission.
     pub fn code(mut self, bytes: &[u8], functions: &[(u64, u64)]) -> Self {
         self.code = Some((bytes.to_vec(), functions.to_vec()));
+        self
+    }
+
+    /// Adds a section header table naming each `(offset, length)` of the `code`
+    /// bytes as an executable section. The rest of the code segment is then data
+    /// that happens to be mapped executable, as some linkers lay objects out.
+    pub fn code_sections(mut self, sections: &[(u64, u64)]) -> Self {
+        self.code_sections = Some(sections.to_vec());
         self
     }
 
@@ -693,18 +704,33 @@ impl<'b> Layout<'b> {
             .collect();
         let dynamic_off = self.place(&dyn_bytes, 8);
 
-        let (shoff, shnum) = if b.hash == HashStyle::SectionsOnly {
-            let mut t = vec![0u8; SHDR_SIZE as usize];
+        let mut sections: Vec<[u8; SHDR_SIZE as usize]> = Vec::new();
+        if b.hash == HashStyle::SectionsOnly {
             let mut s = [0u8; SHDR_SIZE as usize];
             s[4..8].copy_from_slice(&SHT_DYNSYM.to_le_bytes());
             s[16..24].copy_from_slice(&self.vaddr(symtab_off).to_le_bytes());
             s[24..32].copy_from_slice(&symtab_off.to_le_bytes());
             s[32..40].copy_from_slice(&(dynsym.len() as u64).to_le_bytes());
             s[56..64].copy_from_slice(&SYM_SIZE.to_le_bytes());
-            t.extend_from_slice(&s);
-            (self.place(&t, 8), 2u16)
-        } else {
+            sections.push(s);
+        }
+        if let (Some((text, ..)), Some(list)) = (code, &b.code_sections) {
+            for &(offset, length) in list {
+                let mut s = [0u8; SHDR_SIZE as usize];
+                s[4..8].copy_from_slice(&SHT_PROGBITS.to_le_bytes());
+                s[8..16].copy_from_slice(&(SHF_ALLOC | SHF_EXECINSTR).to_le_bytes());
+                s[16..24].copy_from_slice(&self.vaddr(text + offset).to_le_bytes());
+                s[24..32].copy_from_slice(&(text + offset).to_le_bytes());
+                s[32..40].copy_from_slice(&length.to_le_bytes());
+                sections.push(s);
+            }
+        }
+        let (shoff, shnum) = if sections.is_empty() {
             (0, 0)
+        } else {
+            let mut t = vec![0u8; SHDR_SIZE as usize]; // SHN_UNDEF
+            sections.iter().for_each(|s| t.extend_from_slice(s));
+            (self.place(&t, 8), sections.len() as u16 + 1)
         };
 
         let total = self.out.len() as u64;

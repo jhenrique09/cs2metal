@@ -74,7 +74,11 @@ pub const DF_BIND_NOW: u64 = 0x8;
 pub const DF_STATIC_TLS: u64 = 0x10;
 pub const DF_1_NOW: u64 = 0x1;
 
+pub const SHT_PROGBITS: u32 = 1;
+pub const SHT_NOBITS: u32 = 8;
 pub const SHT_DYNSYM: u32 = 11;
+pub const SHF_ALLOC: u64 = 0x2;
+pub const SHF_EXECINSTR: u64 = 0x4;
 pub const SHN_UNDEF: u16 = 0;
 
 pub const STB_LOCAL: u8 = 0;

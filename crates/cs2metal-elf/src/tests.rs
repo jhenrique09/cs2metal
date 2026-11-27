@@ -313,3 +313,55 @@ fn corrupted_unwind_tables_fail_cleanly() {
         }
     }
 }
+
+#[test]
+fn reads_executable_sections_from_the_section_table() {
+    let bytes = libfoo()
+        .code(&[0xc3u8; 0x40], &[])
+        .code_sections(&[(0x20, 0x10), (0x00, 0x08)])
+        .load_bias(0x10_0000)
+        .build();
+    let elf = parse(&bytes).expect("valid object");
+    let text = elf
+        .segments
+        .iter()
+        .find(|s| s.kind == PT_LOAD && s.executable())
+        .expect("code segment");
+    let sections = crate::executable_sections(&bytes)
+        .expect("section table")
+        .expect("present");
+    let relative: Vec<_> = sections
+        .iter()
+        .map(|s| (s.start - text.vaddr, s.end - text.vaddr))
+        .collect();
+    assert_eq!(relative, [(0x00, 0x08), (0x20, 0x30)]);
+}
+
+#[test]
+fn an_object_without_a_section_table_has_no_executable_sections() {
+    assert_eq!(crate::executable_sections(&libfoo().build()), Ok(None));
+    // A table with only a dynamic symbol section names no code.
+    let bytes = libfoo().hash_style(HashStyle::SectionsOnly).build();
+    assert_eq!(crate::executable_sections(&bytes), Ok(Some(Vec::new())));
+}
+
+#[test]
+fn corrupted_section_tables_fail_cleanly() {
+    let bytes = libfoo()
+        .code(&[0xc3u8; 16], &[])
+        .code_sections(&[(0, 16)])
+        .build();
+    for at in 0..bytes.len() {
+        for value in [0x00, 0xff, 0x7f] {
+            let mut corrupted = bytes.clone();
+            corrupted[at] = value;
+            let _ = crate::executable_sections(&corrupted);
+        }
+    }
+    let mut wrong_size = bytes.clone();
+    wrong_size[58] = 40;
+    assert!(matches!(
+        crate::executable_sections(&wrong_size),
+        Err(crate::Error::BadEntrySize { .. })
+    ));
+}

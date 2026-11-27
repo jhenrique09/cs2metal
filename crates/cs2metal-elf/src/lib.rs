@@ -2,7 +2,8 @@
 //!
 //! The parser reads what a dynamic loader reads: the program headers and the dynamic
 //! segment. Section headers are consulted only to size the dynamic symbol table when
-//! an object has neither `DT_HASH` nor `DT_GNU_HASH`. Every read is bounds-checked
+//! an object has neither `DT_HASH` nor `DT_GNU_HASH`, and, for analysis, by
+//! [`executable_sections`]. Every read is bounds-checked
 //! and malformed input yields an [`Error`], never a panic.
 //!
 //! ```
@@ -19,6 +20,7 @@ mod eh_frame;
 mod error;
 mod parse;
 mod reader;
+mod sections;
 #[cfg(any(test, feature = "test-support"))]
 pub mod testing;
 #[cfg(test)]
@@ -31,6 +33,7 @@ use serde::Serialize;
 pub use eh_frame::{FunctionRange, unwind_ranges};
 pub use error::{Error, Result};
 pub use parse::parse;
+pub use sections::{SectionRange, executable_sections};
 
 /// The `e_type` of an object.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
