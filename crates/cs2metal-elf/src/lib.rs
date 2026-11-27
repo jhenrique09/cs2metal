@@ -205,6 +205,10 @@ impl Relocations {
 pub struct Initializers {
     pub init: Option<u64>,
     pub fini: Option<u64>,
+    /// Addresses of `DT_PREINIT_ARRAY`, `DT_INIT_ARRAY`, and `DT_FINI_ARRAY`.
+    pub preinit_array: Option<u64>,
+    pub init_array: Option<u64>,
+    pub fini_array: Option<u64>,
     pub init_array_entries: u64,
     pub fini_array_entries: u64,
     pub preinit_array_entries: u64,

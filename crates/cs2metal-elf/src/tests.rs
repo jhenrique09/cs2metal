@@ -203,6 +203,9 @@ fn reads_tls_template_flags_and_initializers() {
     assert!(elf.flags.bind_now);
     assert!(!elf.flags.text_relocations);
     assert_eq!(elf.initializers.init_array_entries, 3);
+    let array = elf.initializers.init_array.expect("DT_INIT_ARRAY");
+    assert!(array >= 0x7000_0000, "an address in the loaded image");
+    assert_eq!(elf.initializers.fini_array, None);
     let tls_segment = elf.segments.iter().find(|s| s.kind == PT_TLS);
     assert_eq!(tls_segment.map(|s| s.name()), Some("TLS"));
     let load = elf.segments.iter().find(|s| s.kind == PT_LOAD);

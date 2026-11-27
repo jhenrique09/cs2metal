@@ -56,6 +56,7 @@ pub const DT_INIT_ARRAYSZ: u64 = 27;
 pub const DT_FINI_ARRAYSZ: u64 = 28;
 pub const DT_RUNPATH: u64 = 29;
 pub const DT_FLAGS: u64 = 30;
+pub const DT_PREINIT_ARRAY: u64 = 32;
 pub const DT_PREINIT_ARRAYSZ: u64 = 33;
 pub const DT_RELRSZ: u64 = 35;
 pub const DT_RELR: u64 = 36;

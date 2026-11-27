@@ -206,6 +206,9 @@ fn parse_dynamic(r: &Reader<'_>, map: &AddressMap<'_>, tags: &Tags, elf: &mut El
     elf.initializers = Initializers {
         init: tags.get(DT_INIT),
         fini: tags.get(DT_FINI),
+        preinit_array: tags.get(DT_PREINIT_ARRAY),
+        init_array: tags.get(DT_INIT_ARRAY),
+        fini_array: tags.get(DT_FINI_ARRAY),
         init_array_entries: tags.get(DT_INIT_ARRAYSZ).unwrap_or(0) / 8,
         fini_array_entries: tags.get(DT_FINI_ARRAYSZ).unwrap_or(0) / 8,
         preinit_array_entries: tags.get(DT_PREINIT_ARRAYSZ).unwrap_or(0) / 8,
