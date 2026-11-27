@@ -33,4 +33,5 @@ run cxx ./cxx
 run dlopen ./dlopen
 run ifunc ./ifunc
 run scope ./scope
+run tlsprobe ./tlsprobe
 exit $status

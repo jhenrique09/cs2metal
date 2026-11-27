@@ -1,0 +1,6 @@
+thread 0: bump=6009012 bump=7011015 zero_sum=2
+thread 1: bump=7011015 bump=9015021 zero_sum=2
+thread 2: bump=8013018 bump=11019027 zero_sum=2
+main: bump=15027039 zero_sum=1
+tp_is_self=1 guarded=2208 call_host=16
+exit: 0

@@ -50,4 +50,11 @@ $cc $common $link -shared "$src/scope_user.c" -L. -Wl,--no-as-needed -lscope_ove
     -Wl,--as-needed $origin -Wl,-soname,libscope_user.so -o libscope_user.so
 $cc $common $pie $link "$src/scope_main.c" -L. -lscope_user $origin -o scope
 
+# tlsprobe: every TLS model of a shared object, the stack protector, the thread
+# pointer, and a call to a function the program provides; the library needs no
+# C library.
+$cc $common $link -shared -fstack-protector-all "$src/tlsprobe_lib.c" \
+    -Wl,-soname,libtlsprobe.so -o libtlsprobe.so
+$cc $common $pie $link -rdynamic -pthread "$src/tlsprobe_main.c" -L. -ltlsprobe $origin -o tlsprobe
+
 sha256sum $(ls | sort) > SHA256SUMS
