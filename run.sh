@@ -26,7 +26,8 @@
 #   into the integrity baseline, and the SDL shim is checked against the new
 #   game's SDL: if that changed, the shims must be built again (./build.sh in the
 #   checkout) and the game is not started.
-# - The first launch starts from the game's own low video preset (low-preset.sh),
+# - The first launch starts from the game's own low video preset, with CMAA2
+#   anti-aliasing on (low-preset.sh),
 #   because what the game picks for hardware it does not know can be heavy for
 #   this host. The installation is then marked, in data/first-launch, and no later
 #   launch touches the video settings.

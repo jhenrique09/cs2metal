@@ -16,6 +16,7 @@ EXISTING = (
     '\t"setting.defaultres"\t\t"2560"\n'
     '\t"setting.shaderquality"\t\t"1"\n'
     '\t"setting.msaa_samples"\t\t"4"\n'
+    '\t"setting.r_csgo_cmaa_enable"\t\t"0"\n'
     '\t"setting.monitor_index"\t\t"0"\n'
     "}\n"
 )
@@ -48,7 +49,9 @@ class LowPresetTests(unittest.TestCase):
             self.assertEqual(got["setting.defaultres"], "2560")
             self.assertEqual(got["setting.monitor_index"], "0")
             self.assertEqual(got["setting.shaderquality"], "0")
+            # Multisampling off, the cheap CMAA2 pass on.
             self.assertEqual(got["setting.msaa_samples"], "0")
+            self.assertEqual(got["setting.r_csgo_cmaa_enable"], "1")
             self.assertEqual(got["setting.videocfg_shadow_quality"], "0")
             self.assertEqual(got["setting.videocfg_fsr_detail"], "3")
             self.assertTrue(text.startswith('"video.cfg"\n{\n'))
@@ -79,6 +82,7 @@ class LowPresetTests(unittest.TestCase):
             self.assertEqual(got["VendorID"], "4203")
             self.assertEqual(got["DeviceID"], "99")
             self.assertEqual(got["setting.shaderquality"], "0")
+            self.assertEqual(got["setting.r_csgo_cmaa_enable"], "1")
             self.assertEqual(got["setting.videocfg_hdr_detail"], "3")
             self.assertEqual(got["setting.coop_fullscreen"], "1")
             self.assertEqual(got["setting.nowindowborder"], "1")

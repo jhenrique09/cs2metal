@@ -97,7 +97,8 @@ starts, `run.sh`:
 - opens Steam for macOS if it is not running, and gives it half a minute to sign
   in with the account it remembers;
 - asks Steam whether there is a newer build of the game, and installs it;
-- on the first launch only, sets the game's video settings to its own low preset;
+- on the first launch only, sets the game's video settings to its own low preset,
+  with CMAA2 anti-aliasing on;
 - loads Steam's own overlay into the host;
 - writes a log for the session to `~/cs2-metal/logs/`.
 

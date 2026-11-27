@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Sets the game's video settings to its own low preset, for the first launch.
+# Sets the game's video settings to its own low preset, with the cheap
+# anti-aliasing on, for the first launch.
 #
 #   tools/low-preset.sh <steam-userdata-dir> [<vendor-id> <device-id>]
 #
@@ -32,11 +33,16 @@ device="${3:-}"
 # The version of the settings file in game build 26879581.
 version=17
 
-# The game's low preset, as it stored it on 27 November 2026.
+# The game's low preset, as it stored it on 27 November 2026, but for one line:
+# the preset has no anti-aliasing at all, and here CMAA2 is on. CMAA2 is a pass
+# over the finished image, so it costs little, where multisampling makes the
+# render targets of this host's 2560 by 1440 window two or four times as large
+# (docs/PERFORMANCE_AB_2026-11-27.md). The preset already upscales with FSR
+# (videocfg_fsr_detail above 0), which stays.
 low="setting.shaderquality=0 \
 setting.r_texturefilteringquality=0 \
 setting.msaa_samples=0 \
-setting.r_csgo_cmaa_enable=0 \
+setting.r_csgo_cmaa_enable=1 \
 setting.videocfg_shadow_quality=0 \
 setting.videocfg_dynamic_shadows=0 \
 setting.videocfg_texture_detail=0 \

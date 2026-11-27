@@ -126,7 +126,7 @@ it off secured servers: practice matches with bots, with no such risk.
 | --- | --- |
 | Opens Steam for macOS if it is not running, and waits 30 seconds for it to sign in | `CS2METAL_STEAM_WAIT=<seconds>` |
 | Asks Steam whether there is a newer build and installs it (see [Update](#update)) | `CS2METAL_NO_UPDATE=1` |
-| On the first launch only, sets the game's video settings to its own low preset | `CS2METAL_KEEP_VIDEO_SETTINGS=1` |
+| On the first launch only, sets the game's video settings to its own low preset, with CMAA2 anti-aliasing on | `CS2METAL_KEEP_VIDEO_SETTINGS=1` |
 | Loads Steam's overlay (Shift+Tab) into the host | `CS2METAL_NO_OVERLAY=1` |
 | Leaves the opening movie out | `CS2METAL_KEEP_INTRO=1` |
 
