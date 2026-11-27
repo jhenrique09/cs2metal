@@ -239,7 +239,8 @@ pub(crate) const NEXT_CALLBACK: u64 = 0x4353_0004;
 /// audio thread. That thread runs no guest thread, and running the callback on
 /// another while SDL holds the stream's lock would deadlock, so the stream is
 /// opened without it, and the shim's callback thread makes the calls SDL's
-/// device thread would: whenever the queue falls below a target.
+/// device thread would: whenever the queue falls below a target, with the
+/// stream locked, as SDL calls a stream's callback.
 struct Pump {
     stream: u64,
     callback: u64,
@@ -250,8 +251,45 @@ struct Pump {
     playback: bool,
 }
 
-static PUMPS: Mutex<Vec<Pump>> = Mutex::new(Vec::new());
+struct Pumps {
+    list: Vec<Pump>,
+    /// The stream the callback thread holds locked while the guest's callback
+    /// runs, or 0.
+    held: u64,
+}
+
+static PUMPS: Mutex<Pumps> = Mutex::new(Pumps {
+    list: Vec::new(),
+    held: 0,
+});
 static PUMPS_CHANGED: std::sync::Condvar = std::sync::Condvar::new();
+
+/// The guest thread id of the shim's callback thread, once it has asked for a
+/// call.
+static CALLBACK_THREAD: std::sync::atomic::AtomicI64 = std::sync::atomic::AtomicI64::new(0);
+
+/// How long `SDL_DestroyAudioStream` waits for a callback on the stream to end.
+const DESTROY_WAIT: std::time::Duration = std::time::Duration::from_secs(2);
+
+fn tracing() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("CS2METAL_SDL_TRACE").is_some())
+}
+
+/// `SDL_LockAudioStream(stream)` or `SDL_UnlockAudioStream(stream)`, on the
+/// calling thread.
+fn lock_stream(stream: u64, lock: bool) {
+    let f = real(if lock {
+        "SDL_LockAudioStream"
+    } else {
+        "SDL_UnlockAudioStream"
+    });
+    if f != 0 {
+        // SAFETY: the host library's function of that name.
+        let f: extern "C" fn(u64) -> bool = unsafe { std::mem::transmute(f) };
+        f(stream);
+    }
+}
 
 /// How far ahead of the device a playback stream's queue is kept.
 const AHEAD_MS: u64 = 40;
@@ -281,8 +319,13 @@ extern "C" fn open_audio_device_stream(
     // SAFETY: the guest passes an SDL_AudioSpec.
     let [format, channels, freq] = unsafe { std::ptr::read_unaligned(spec as *const [u32; 3]) };
     let frame = u64::from((format & 0xff) / 8) * u64::from(channels.max(1));
+    if tracing() {
+        eprintln!(
+            "cs2metal: SDL audio stream with a callback: format {format:#x}, {channels} channels, {freq} Hz"
+        );
+    }
     if let Ok(mut pumps) = PUMPS.lock() {
-        pumps.push(Pump {
+        pumps.list.push(Pump {
             stream,
             callback,
             userdata,
@@ -296,13 +339,25 @@ extern "C" fn open_audio_device_stream(
 }
 
 /// `SDL_DestroyAudioStream(stream)`: its pump goes first, under the lock the
-/// callback thread takes.
+/// callback thread takes, and a callback running on the stream ends first. A
+/// callback that destroys its own stream gives its lock up here.
 extern "C" fn destroy_audio_stream(stream: u64) {
     let f = real("SDL_DestroyAudioStream");
     let Ok(mut pumps) = PUMPS.lock() else {
         return;
     };
-    pumps.retain(|p| p.stream != stream);
+    pumps.list.retain(|p| p.stream != stream);
+    let own = CALLBACK_THREAD.load(std::sync::atomic::Ordering::Acquire);
+    let _pumps = if pumps.held == stream && own == crate::threads::gettid() {
+        pumps.held = 0;
+        lock_stream(stream, false);
+        pumps
+    } else {
+        match PUMPS_CHANGED.wait_timeout_while(pumps, DESTROY_WAIT, |p| p.held == stream) {
+            Ok((p, _)) => p,
+            Err(_) => return,
+        }
+    };
     if f != 0 {
         // SAFETY: the host library's SDL_DestroyAudioStream.
         let f: extern "C" fn(u64) = unsafe { std::mem::transmute(f) };
@@ -310,7 +365,29 @@ extern "C" fn destroy_audio_stream(stream: u64) {
     }
 }
 
-/// The next stream callback due, as (callback, userdata, stream, amount).
+/// Whether the device `stream` is bound to is paused. A device opened with
+/// `SDL_OpenAudioDeviceStream` starts paused, and SDL calls no callback until
+/// the game resumes it; the game finishes setting its side up in between.
+fn paused(stream: u64) -> bool {
+    let (device, paused) = (
+        real("SDL_GetAudioStreamDevice"),
+        real("SDL_AudioDevicePaused"),
+    );
+    if device == 0 || paused == 0 {
+        return false;
+    }
+    // SAFETY: the host library's functions of these names.
+    let (device, paused) = unsafe {
+        (
+            std::mem::transmute::<usize, extern "C" fn(u64) -> u32>(device),
+            std::mem::transmute::<usize, extern "C" fn(u32) -> bool>(paused),
+        )
+    };
+    paused(device(stream))
+}
+
+/// The next stream callback due, as (callback, userdata, stream, amount), among
+/// the streams whose devices are playing.
 fn due(pumps: &[Pump]) -> Option<[u64; 5]> {
     let queued = real("SDL_GetAudioStreamQueued");
     let available = real("SDL_GetAudioStreamAvailable");
@@ -324,7 +401,7 @@ fn due(pumps: &[Pump]) -> Option<[u64; 5]> {
             std::mem::transmute::<usize, extern "C" fn(u64) -> i32>(available),
         )
     };
-    pumps.iter().find_map(|p| {
+    pumps.iter().filter(|p| !paused(p.stream)).find_map(|p| {
         let amount = if p.playback {
             let target = p.rate * AHEAD_MS / 1000;
             let have = u64::try_from(queued(p.stream)).unwrap_or(0);
@@ -339,24 +416,57 @@ fn due(pumps: &[Pump]) -> Option<[u64; 5]> {
 /// The shim's callback thread asks for its next call: it waits until a stream
 /// needs data and writes the call, a guest function and four arguments, to
 /// `out`.
+///
+/// SDL calls a stream's callback with the stream locked, and a callback may
+/// count on that: the game's unlocks the stream while it mixes and locks it
+/// again before it returns. So the stream is locked here, on the callback
+/// thread, before the call is handed out, and unlocked when the thread comes
+/// back for the next one. Without that the game's own lock was never given
+/// up, and SDL's device thread waited for it forever, in silence.
 pub(crate) fn next_callback(out: u64) -> i64 {
     if out == 0 {
         return crate::translate::EFAULT;
     }
+    CALLBACK_THREAD.store(
+        crate::threads::gettid(),
+        std::sync::atomic::Ordering::Release,
+    );
     let Ok(mut pumps) = PUMPS.lock() else {
         return crate::translate::EINVAL;
     };
-    loop {
-        if let Some(call) = due(&pumps) {
-            // SAFETY: the shim passes room for five words.
-            unsafe { std::ptr::write_unaligned(out as *mut [u64; 5], call) };
-            return 0;
+    let held = std::mem::take(&mut pumps.held);
+    if held != 0 {
+        lock_stream(held, false);
+        PUMPS_CHANGED.notify_all();
+    }
+    let call = loop {
+        if let Some(call) = due(&pumps.list) {
+            break call;
         }
         pumps = match PUMPS_CHANGED.wait_timeout(pumps, TICK) {
             Ok((p, _)) => p,
             Err(_) => return crate::translate::EINVAL,
         };
+    };
+    // Marked held before the stream is locked, outside the pumps' lock: its
+    // destruction waits meanwhile, and a thread that holds the stream's lock
+    // can still reach the pumps.
+    pumps.held = call[2];
+    drop(pumps);
+    lock_stream(call[2], true);
+    if tracing() {
+        static CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        let n = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+        if n.is_power_of_two() {
+            eprintln!(
+                "cs2metal: SDL audio callback for {} bytes (call {n})",
+                call[3]
+            );
+        }
     }
+    // SAFETY: the shim passes room for five words.
+    unsafe { std::ptr::write_unaligned(out as *mut [u64; 5], call) };
+    0
 }
 
 // --- Windows -----------------------------------------------------------------------
@@ -550,7 +660,7 @@ pub(crate) fn bind(table: u64, names: u64, count: u64) -> i64 {
         "cs2metal: SDL bridge bound {bound} of {count} functions to {}",
         path.to_string_lossy()
     );
-    if !lacking.is_empty() && std::env::var_os("CS2METAL_SDL_TRACE").is_some() {
+    if !lacking.is_empty() && tracing() {
         eprintln!("cs2metal: the host's SDL lacks {}", lacking.join(", "));
     }
     0
@@ -587,22 +697,7 @@ mod tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn a_playback_stream_is_topped_up_in_whole_frames() {
-        let mut real = HashMap::new();
-        real.insert(
-            "SDL_GetAudioStreamQueued".to_owned(),
-            queued as *const () as usize,
-        );
-        real.insert(
-            "SDL_GetAudioStreamAvailable".to_owned(),
-            available as *const () as usize,
-        );
-        if let Ok(mut state) = STATE.lock() {
-            *state = Some(State {
-                bridge: Bridge::new().expect("bridge"),
-                real,
-                watches: HashMap::new(),
-            });
-        }
+        install_fakes();
         let pumps = [Pump {
             stream: 7,
             callback: 0x1000,
@@ -615,6 +710,111 @@ mod tests {
         let target = 8 * 48_000 * AHEAD_MS / 1000;
         assert_eq!(call, [0x1000, 9, 7, target - 1000, target - 1000]);
         assert_eq!((target - 1000) % 8, 0);
+    }
+
+    /// A stream's device has the stream's number; device 13 is paused.
+    #[cfg(target_arch = "x86_64")]
+    extern "C" fn device(stream: u64) -> u32 {
+        stream as u32
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    extern "C" fn device_paused(device: u32) -> bool {
+        device == 13
+    }
+
+    /// A device starts paused, and SDL calls no stream callback until the game
+    /// resumes it.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn a_paused_device_asks_for_nothing() {
+        install_fakes();
+        let pump = |stream| Pump {
+            stream,
+            callback: 0x1000,
+            userdata: 9,
+            rate: 8 * 48_000,
+            frame: 8,
+            playback: true,
+        };
+        assert!(due(&[pump(13)]).is_none());
+        let call = due(&[pump(13), pump(7)]).expect("due");
+        assert_eq!(call[2], 7);
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    static LOCKS: Mutex<Vec<(bool, u64)>> = Mutex::new(Vec::new());
+
+    #[cfg(target_arch = "x86_64")]
+    extern "C" fn lock(stream: u64) -> bool {
+        LOCKS.lock().expect("locks").push((true, stream));
+        true
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    extern "C" fn unlock(stream: u64) -> bool {
+        LOCKS.lock().expect("locks").push((false, stream));
+        true
+    }
+
+    /// The host library as these tests need it. Every test installs the same
+    /// one, since they share the bridge's state.
+    #[cfg(target_arch = "x86_64")]
+    fn install_fakes() {
+        let mut real = HashMap::new();
+        for (name, f) in [
+            ("SDL_GetAudioStreamQueued", queued as *const () as usize),
+            (
+                "SDL_GetAudioStreamAvailable",
+                available as *const () as usize,
+            ),
+            ("SDL_GetAudioStreamDevice", device as *const () as usize),
+            ("SDL_AudioDevicePaused", device_paused as *const () as usize),
+            ("SDL_LockAudioStream", lock as *const () as usize),
+            ("SDL_UnlockAudioStream", unlock as *const () as usize),
+        ] {
+            real.insert(name.to_owned(), f);
+        }
+        if let Ok(mut state) = STATE.lock() {
+            *state = Some(State {
+                bridge: Bridge::new().expect("bridge"),
+                real,
+                watches: HashMap::new(),
+            });
+        }
+    }
+
+    /// SDL calls a stream's callback with the stream locked: each call is handed
+    /// out with the lock taken, and the lock is given up when the callback
+    /// thread comes back for the next.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn a_callback_runs_with_its_stream_locked() {
+        install_fakes();
+        PUMPS.lock().expect("pumps").list.push(Pump {
+            stream: 7,
+            callback: 0x1000,
+            userdata: 9,
+            rate: 8 * 48_000,
+            frame: 8,
+            playback: true,
+        });
+        let mut call = [0u64; 5];
+        let out = std::ptr::from_mut(&mut call) as u64;
+        assert_eq!(next_callback(out), 0);
+        assert_eq!(call[..3], [0x1000, 9, 7]);
+        assert_eq!(*LOCKS.lock().expect("locks"), [(true, 7)]);
+        assert_eq!(PUMPS.lock().expect("pumps").held, 7);
+        assert_eq!(next_callback(out), 0);
+        assert_eq!(
+            *LOCKS.lock().expect("locks"),
+            [(true, 7), (false, 7), (true, 7)]
+        );
+        // Destroyed from inside its own callback: the lock is given up first.
+        destroy_audio_stream(7);
+        assert_eq!(LOCKS.lock().expect("locks").last(), Some(&(false, 7)));
+        let pumps = PUMPS.lock().expect("pumps");
+        assert!(pumps.list.is_empty() && pumps.held == 0);
     }
 
     #[test]
