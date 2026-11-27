@@ -127,8 +127,10 @@ and the M2 to M3 scope below is revised to match.
   2026: route B ruled out by the cost of a trapped system call, route C measured
   at 20 source lines and a two-minute build, route A sized at 682 functions
   ([bake-off](LIBC_BAKEOFF_2026-11-27.md)).
-- [ ] **Owner decision:** the [libc route](LIBC_ROUTE_DECISION.md). Proposed: route
-  C, glibc rebuilt with one system call slot, with its own ld.so.
+- [x] **Owner decision:** the [libc route](LIBC_ROUTE_DECISION.md). Accepted on
+  27 November 2026: route C, glibc rebuilt with one system call slot, with its own
+  ld.so. The [TLS decision](TLS_UNDER_ROSETTA_DECISION.md) was accepted the same
+  day, revised for this route.
 - [ ] Acceptance of the [TLS decision](TLS_UNDER_ROSETTA_DECISION.md): fixtures that
   use `__thread`, the stack protector, and threads run correctly with the rewrite.
 

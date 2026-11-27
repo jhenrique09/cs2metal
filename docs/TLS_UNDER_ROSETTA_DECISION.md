@@ -14,8 +14,17 @@ load policy says which unexplained decodes block a module
 Evidence for acceptance, 27 November 2026: the loader implements the transform as
 written here, and on the `tlsprobe` fixture under Rosetta 2 every TLS model, the
 stack protector, the thread pointer, and a guest-to-host call give the Linux
-results from four threads. The executable fixtures that need a C library follow
-with it. Acceptance waits for the owner's sign-off.
+results from four threads.
+
+**Accepted on 27 November 2026.** The owner delegated the call; the evidence above
+meets every condition this record set, and the libc route depends on the
+transform. Two things change with the [libc route](LIBC_ROUTE_DECISION.md), which
+runs glibc's own ld.so. The TLS layout is then glibc's, set up by ld.so through
+`arch_prctl(ARCH_SET_FS)`, which the host turns into the guest's thread pointer.
+T-001 is applied when the host answers `mmap` for an executable range of a file,
+instead of when cs2metal's loader maps a module. The rewrite itself, its proof,
+its counters, and its refusal policy are unchanged. The executable fixtures that
+use a C library confirm both once the rebuilt glibc runs.
 
 ## Context
 

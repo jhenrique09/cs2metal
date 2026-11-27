@@ -2,10 +2,18 @@
 
 ## Status
 
-Proposed on 27 November 2026, with the measurements of the
-[libc bake-off](LIBC_BAKEOFF_2026-11-27.md). **Waiting for the owner's choice.** This
-is Gate 1 of the [roadmap](ROADMAP.md). Nothing past the bake-off is built until it
-is decided.
+Accepted on 27 November 2026 by the owner: option C, as proposed below. Proposed the
+same day with the measurements of the [libc bake-off](LIBC_BAKEOFF_2026-11-27.md).
+This passes the decision half of Gate 1 of the [roadmap](ROADMAP.md); the gate
+closes when the C++ fixtures run on the rebuilt glibc.
+
+The owner asked whether the route is faster and more sustainable. Faster at run
+time, because glibc's hot paths stay guest code and only system calls cross the
+bridge, and faster to a working game, because glibc's behavior is exact by
+construction. More sustainable, because the patch is 20 lines to carry forward to
+a newer glibc, and the Linux system call ABI the host implements is stable by the
+kernel's own policy, where glibc's internal ABI, which option A would imitate, is
+not.
 
 ## Context
 
