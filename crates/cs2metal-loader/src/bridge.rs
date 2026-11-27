@@ -3,62 +3,119 @@
 //! Under Rosetta 2 no `fs` base can be set, so guest code reaches its thread control
 //! block through `gs` instead (transform T-001), and every thread switches its GS
 //! base between the guest's block and the macOS TSD array with the machdep call
-//! `thread_fast_set_cthread_self` (`0x3000003`), as the
-//! [segment probe](../../../docs/ROSETTA_SEGMENT_PROBE_2026-11-26.md) measured.
+//! `thread_fast_set_cthread_self` (`0x3000003`), as the segment probe measured.
 //!
 //! - [`call_guest`] runs a guest function from host code: GS to the guest's block,
 //!   the call, GS back to the host.
 //! - A *host thunk* runs a host function from guest code: GS to the host, the call,
-//!   GS back to the guest. Its state lives on a small per-thread stack inside the
-//!   guest's control block, not on the machine stack, so that arguments passed on
-//!   the stack reach the host function where the ABI puts them.
+//!   GS back to the guest. Its state lives on a small per-thread stack, not on the
+//!   machine stack, so that arguments passed on the stack reach the host function
+//!   where the ABI puts them.
+//! - The *system call entry* is what the guest's rebuilt glibc calls through
+//!   `tcbhead_t.sysinfo` instead of `syscall`: it preserves every register a Linux
+//!   `syscall` preserves, switches to the host, and runs the registered handler.
 //! - A *neutral* function touches no macOS thread data and is called directly.
 //!
-//! The host TSD base of each thread is discovered at run time, never assumed.
+//! Every guest thread's control block points, in an area glibc 2.31 leaves unused,
+//! at a *host block* that holds what the bridge needs for that thread: its host TSD
+//! base, discovered at run time, the guest thread pointer to return to, and the
+//! thunk's frames.
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::error::{Error, Result};
 use crate::memory::Region;
 
-/// Offsets inside a guest thread control block. 0 to 0x30 are glibc's `tcbhead_t`;
-/// the rest of the first page is cs2metal's own. Only the x86-64 assembly uses
-/// some of them.
+/// Offsets inside a guest thread control block, glibc 2.31's `tcbhead_t` on x86-64.
 #[cfg_attr(not(target_arch = "x86_64"), allow(dead_code))]
 pub(crate) mod tcb {
     pub const SELF: u64 = 0x0;
     pub const DTV: u64 = 0x8;
     pub const SELF_AGAIN: u64 = 0x10;
+    /// `sysinfo`: the system call slot the rebuilt glibc calls through.
+    pub const SYSINFO: u64 = 0x20;
     pub const STACK_GUARD: u64 = 0x28;
     pub const POINTER_GUARD: u64 = 0x30;
-    /// The host TSD base of the thread that owns the block.
-    pub const HOST_TSD: u64 = 0x800;
-    /// The next free frame of the host thunk's per-thread stack.
-    pub const BRIDGE_TOP: u64 = 0x808;
-    /// The thunk's frames, 64 bytes each, from here to the end of the page:
-    /// 24 nested guest-to-host calls per thread.
-    pub const BRIDGE_FRAMES: u64 = 0x900;
-    pub const BRIDGE_FRAME_SIZE: u64 = 64;
-    /// Bytes reserved for the control block, before the DTV.
+    /// The first word of `__glibc_unused2`, which glibc 2.31 never touches: the
+    /// address of this thread's host block.
+    pub const HOST_BLOCK: u64 = 0x80;
+    /// Bytes the loader reserves for a control block it builds itself.
     pub const SIZE: u64 = 0x1000;
+}
+
+/// Offsets inside a host block.
+#[cfg_attr(not(target_arch = "x86_64"), allow(dead_code))]
+pub(crate) mod host {
+    /// The thread's macOS TSD base.
+    pub const TSD: u64 = 0x0;
+    /// The guest thread pointer to restore when returning to the guest; a guest's
+    /// `arch_prctl(ARCH_SET_FS)` changes it.
+    pub const GUEST_TP: u64 = 0x8;
+    /// The next free frame of the host thunk's stack.
+    pub const BRIDGE_TOP: u64 = 0x10;
+    /// The thunk's frames, 64 bytes each, to the end of the block: 63 nested
+    /// guest-to-host calls per thread.
+    pub const BRIDGE_FRAMES: u64 = 0x40;
+    pub const BRIDGE_FRAME_SIZE: u64 = 64;
+    pub const SIZE: u64 = 0x1000;
+}
+
+/// The registers of a guest system call, as the system call entry saves them.
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct SyscallFrame {
+    /// `rax`: the Linux system call number on entry.
+    pub number: u64,
+    pub arg5: u64,
+    pub arg4: u64,
+    pub arg3: u64,
+    pub arg2: u64,
+    pub arg1: u64,
+    pub arg0: u64,
+}
+
+/// Answers a guest system call in the host domain; the result goes to `rax`, a
+/// negative errno for a failure, as on Linux.
+pub type SyscallHandler = extern "C" fn(&mut SyscallFrame) -> u64;
+
+static HANDLER: AtomicU64 = AtomicU64::new(0);
+
+/// Installs the handler every guest system call reaches.
+pub fn set_syscall_handler(handler: SyscallHandler) {
+    HANDLER.store(handler as *const () as u64, Ordering::Release);
+}
+
+/// Called by the system call entry, in the host domain.
+#[cfg_attr(not(target_arch = "x86_64"), allow(dead_code))]
+extern "C" fn dispatch(frame: &mut SyscallFrame) -> u64 {
+    let handler = HANDLER.load(Ordering::Acquire);
+    if handler == 0 {
+        const ENOSYS: u64 = 38;
+        return ENOSYS.wrapping_neg();
+    }
+    // SAFETY: only set_syscall_handler stores here, from a SyscallHandler.
+    let handler: SyscallHandler = unsafe { std::mem::transmute(handler as usize) };
+    handler(frame)
 }
 
 #[cfg(target_arch = "x86_64")]
 mod imp {
-    use super::tcb;
+    use super::{host, tcb};
 
     // The host thunk. Entered from guest code with GS at the guest's block, the
     // arguments in the SysV registers and on the stack, and r11 holding the host
     // function, set by the stub that jumped here.
     //
-    // Frame layout on the per-thread bridge stack: 0 rax (vector count of a
-    // variadic call), 8 guest return address, 16 rbx, 24 r12, 32 target, 40 rcx,
-    // 48 rdi; reused for rax and rdx on the way out.
+    // Frame layout on the host block's stack: 0 rax (vector count of a variadic
+    // call), 8 guest return address, 16 rbx, 24 r12, 32 target, 40 rcx, 48 rdi;
+    // reused for rax and rdx on the way out. rbx holds the host block across the
+    // call, r12 the frame.
     core::arch::global_asm!(
         ".p2align 4",
         ".globl _cs2metal_host_thunk",
         "_cs2metal_host_thunk:",
-        "mov r10, qword ptr gs:[{self_}]",
+        "mov r10, qword ptr gs:[{block}]",
         "mov r10, qword ptr [r10 + {top}]",
         "mov qword ptr [r10 + 0], rax",
         "pop rax",
@@ -68,11 +125,11 @@ mod imp {
         "mov qword ptr [r10 + 32], r11",
         "mov qword ptr [r10 + 40], rcx",
         "mov qword ptr [r10 + 48], rdi",
-        "mov rbx, qword ptr gs:[{self_}]",
+        "mov rbx, qword ptr gs:[{block}]",
         "mov r12, r10",
         "lea r10, [r12 + {frame}]",
         "mov qword ptr [rbx + {top}], r10",
-        "mov rdi, qword ptr [rbx + {host}]",
+        "mov rdi, qword ptr [rbx + {tsd}]",
         "mov eax, 0x3000003",
         "syscall",
         "mov rdi, qword ptr [r12 + 48]",
@@ -81,7 +138,7 @@ mod imp {
         "call qword ptr [r12 + 32]",
         "mov qword ptr [r12 + 40], rax",
         "mov qword ptr [r12 + 48], rdx",
-        "mov rdi, rbx",
+        "mov rdi, qword ptr [rbx + {guest}]",
         "mov eax, 0x3000003",
         "syscall",
         "mov rax, qword ptr [r12 + 40]",
@@ -92,18 +149,73 @@ mod imp {
         "mov r12, qword ptr [r12 + 24]",
         "push rcx",
         "ret",
-        self_ = const tcb::SELF,
-        top = const tcb::BRIDGE_TOP,
-        host = const tcb::HOST_TSD,
-        frame = const tcb::BRIDGE_FRAME_SIZE,
+        block = const tcb::HOST_BLOCK,
+        top = const host::BRIDGE_TOP,
+        tsd = const host::TSD,
+        guest = const host::GUEST_TP,
+        frame = const host::BRIDGE_FRAME_SIZE,
+    );
+
+    // The system call entry. Entered by `call *%gs:0x20` from the rebuilt glibc,
+    // below the red zone, with rax the Linux number and rdi, rsi, rdx, r10, r8, r9
+    // the arguments. Like `syscall`, it changes only rax (the result), rcx, and r11;
+    // the x87, MMX, and SSE state is saved with fxsave around the host code.
+    core::arch::global_asm!(
+        ".p2align 4",
+        ".globl _cs2metal_syscall_entry",
+        "_cs2metal_syscall_entry:",
+        "push rbx",
+        "push rbp",
+        "push rdi",
+        "push rsi",
+        "push rdx",
+        "push r10",
+        "push r8",
+        "push r9",
+        "push rax",
+        "mov rbx, qword ptr gs:[{block}]",
+        "mov rbp, rsp",
+        "mov rdi, qword ptr [rbx + {tsd}]",
+        "mov eax, 0x3000003",
+        "syscall",
+        "sub rsp, 576",
+        "and rsp, -64",
+        "fxsave64 [rsp]",
+        "mov rdi, rbp",
+        "call {dispatch}",
+        "mov qword ptr [rbp], rax",
+        "fxrstor64 [rsp]",
+        "mov rsp, rbp",
+        "mov rdi, qword ptr [rbx + {guest}]",
+        "mov eax, 0x3000003",
+        "syscall",
+        "pop rax",
+        "pop r9",
+        "pop r8",
+        "pop r10",
+        "pop rdx",
+        "pop rsi",
+        "pop rdi",
+        "pop rbp",
+        "pop rbx",
+        "ret",
+        block = const tcb::HOST_BLOCK,
+        tsd = const host::TSD,
+        guest = const host::GUEST_TP,
+        dispatch = sym super::dispatch,
     );
 
     unsafe extern "C" {
         fn cs2metal_host_thunk();
+        fn cs2metal_syscall_entry();
     }
 
     pub(crate) fn thunk_entry() -> u64 {
         cs2metal_host_thunk as *const () as u64
+    }
+
+    pub(crate) fn syscall_entry() -> u64 {
+        cs2metal_syscall_entry as *const () as u64
     }
 
     fn gs_word(index: u64) -> u64 {
@@ -145,13 +257,13 @@ mod imp {
     ///
     /// # Safety
     ///
-    /// `tp` must be a guest control block owned by the calling thread, with its
-    /// host TSD slot set to this thread's base, and `f` guest code that takes these
-    /// arguments.
+    /// `tp` must be a guest control block owned by the calling thread whose host
+    /// block holds this thread's TSD base and `tp` itself as the guest pointer, and
+    /// `f` guest code that takes these arguments.
     pub(crate) unsafe fn call_guest(tp: u64, f: u64, args: &[u64; 6]) -> u64 {
         let result: u64;
-        // SAFETY: the caller's contract. The block's host slot restores GS before
-        // any host code runs; r12-r14 are callee-saved, so the guest preserves them.
+        // SAFETY: the caller's contract. The host block restores GS before any
+        // host code runs; r12-r14 are callee-saved, so the guest preserves them.
         unsafe {
             core::arch::asm!(
                 "mov rdi, r14",
@@ -166,11 +278,13 @@ mod imp {
                 "xor eax, eax",
                 "call r12",
                 "mov r12, rax",
-                "mov rdi, qword ptr gs:[{host}]",
+                "mov rdi, qword ptr gs:[{block}]",
+                "mov rdi, qword ptr [rdi + {tsd}]",
                 "mov eax, 0x3000003",
                 "syscall",
                 "mov rax, r12",
-                host = const tcb::HOST_TSD,
+                block = const tcb::HOST_BLOCK,
+                tsd = const host::TSD,
                 inout("r12") f => _,
                 in("r13") args.as_ptr(),
                 in("r14") tp,
@@ -179,6 +293,34 @@ mod imp {
             );
         }
         result
+    }
+
+    /// Enters a guest program as the Linux kernel does: GS at `tp`, the stack
+    /// pointer at the initial stack, `rdx` zero (no exit function), and a jump to
+    /// `entry`. It never returns; the guest ends the process with `exit_group`.
+    ///
+    /// # Safety
+    ///
+    /// `tp` must be a control block of the calling thread with its host block set,
+    /// `stack` a Linux initial stack (argc, argv, envp, auxv), and `entry` the
+    /// program's entry point.
+    pub(crate) unsafe fn enter_process(tp: u64, entry: u64, stack: u64) -> ! {
+        // SAFETY: the caller's contract; nothing of the host's stack is used again.
+        unsafe {
+            core::arch::asm!(
+                "mov rdi, r14",
+                "mov eax, 0x3000003",
+                "syscall",
+                "mov rsp, r13",
+                "xor edx, edx",
+                "xor ebp, ebp",
+                "jmp r12",
+                in("r12") entry,
+                in("r13") stack,
+                in("r14") tp,
+                options(noreturn),
+            );
+        }
     }
 
     /// `__tls_get_addr`, neutral: it runs in the guest domain, reads the DTV of the
@@ -220,11 +362,17 @@ mod imp {
     pub(crate) fn thunk_entry() -> u64 {
         0
     }
+    pub(crate) fn syscall_entry() -> u64 {
+        0
+    }
     pub(crate) fn host_tsd_base() -> Option<u64> {
         None
     }
     pub(crate) unsafe fn call_guest(_tp: u64, _f: u64, _args: &[u64; 6]) -> u64 {
         0
+    }
+    pub(crate) unsafe fn enter_process(_tp: u64, _entry: u64, _stack: u64) -> ! {
+        std::process::abort()
     }
     pub(crate) unsafe extern "C" fn tls_get_addr(_index: *const [u64; 2]) -> u64 {
         0
@@ -234,8 +382,12 @@ mod imp {
     }
 }
 
-#[allow(unused_imports)]
 pub(crate) use imp::{call_guest, host_tsd_base};
+
+/// The address the guest's system call slot (`tcbhead_t.sysinfo`) must hold.
+pub fn syscall_entry() -> u64 {
+    imp::syscall_entry()
+}
 
 /// Addresses of the neutral functions the loader itself provides to the guest.
 pub fn neutral(name: &str) -> Option<u64> {
@@ -244,6 +396,66 @@ pub fn neutral(name: &str) -> Option<u64> {
         "__stack_chk_fail" => Some(imp::stack_chk_fail as *const () as u64),
         _ => None,
     }
+}
+
+/// The per-thread state the bridge keeps outside the guest's control block.
+#[derive(Debug)]
+pub struct HostBlock {
+    region: Region,
+}
+
+impl HostBlock {
+    /// A host block for the calling thread, returning to the guest at `guest_tp`.
+    pub fn new(guest_tp: u64) -> Result<Self> {
+        let tsd = host_tsd_base().ok_or(Error::ForeignHost)?;
+        let region = Region::reserve(host::SIZE)?;
+        region.map_zero(0, host::SIZE)?;
+        let base = region.address();
+        region.write_u64(host::TSD, tsd)?;
+        region.write_u64(host::GUEST_TP, guest_tp)?;
+        region.write_u64(host::BRIDGE_TOP, base + host::BRIDGE_FRAMES)?;
+        Ok(Self { region })
+    }
+
+    pub fn address(&self) -> u64 {
+        self.region.address()
+    }
+
+    /// The guest thread pointer the bridge returns to.
+    pub fn guest_tp(&self) -> u64 {
+        self.region.read_u64(host::GUEST_TP).unwrap_or(0)
+    }
+
+    /// Changes the guest thread pointer the bridge returns to, as
+    /// `arch_prctl(ARCH_SET_FS)` does.
+    pub fn set_guest_tp(&self, tp: u64) -> Result<()> {
+        self.region.write_u64(host::GUEST_TP, tp)
+    }
+}
+
+/// Makes `tp` a control block the bridge can use: its system call slot and its
+/// host block pointer. The block must be writable for 0x88 bytes.
+///
+/// # Safety
+///
+/// `tp` must point at a writable guest control block.
+pub unsafe fn attach(tp: u64, block: &HostBlock) {
+    // SAFETY: the caller's contract; both words lie inside tcbhead_t.
+    unsafe {
+        std::ptr::write_unaligned((tp + tcb::SYSINFO) as *mut u64, syscall_entry());
+        std::ptr::write_unaligned((tp + tcb::HOST_BLOCK) as *mut u64, block.address());
+    }
+}
+
+/// Enters a guest program; see the safety contract of the kernel-like start.
+///
+/// # Safety
+///
+/// `tp` must be attached to a host block of the calling thread, `stack` a Linux
+/// initial stack, and `entry` the program's entry point. Never returns.
+pub unsafe fn enter_process(tp: u64, entry: u64, stack: u64) -> ! {
+    // SAFETY: the caller's contract.
+    unsafe { imp::enter_process(tp, entry, stack) }
 }
 
 /// Generated stubs that enter host functions through the host thunk.

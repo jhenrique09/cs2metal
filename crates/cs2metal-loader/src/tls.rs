@@ -10,7 +10,7 @@
 
 use std::marker::PhantomData;
 
-use crate::bridge::{self, tcb};
+use crate::bridge::{self, HostBlock, tcb};
 use crate::error::{Error, Result};
 use crate::memory::{Region, round_up};
 
@@ -72,6 +72,8 @@ fn random_word() -> u64 {
 #[derive(Debug)]
 pub struct GuestThread {
     region: Region,
+    /// Kept alive as long as the control block points at it.
+    _host: HostBlock,
     tp: u64,
     /// The block holds this thread's host TSD base, so it must stay on it.
     _not_send: PhantomData<*const ()>,
@@ -79,7 +81,6 @@ pub struct GuestThread {
 
 impl GuestThread {
     pub(crate) fn new(layout: &TlsLayout) -> Result<Self> {
-        let host = bridge::host_tsd_base().ok_or(Error::ForeignHost)?;
         let page = 4096;
         let below = round_up(layout.used, page.max(layout.align));
         let dtv_size = 16 * (layout.modules.len() as u64 + 2);
@@ -87,6 +88,7 @@ impl GuestThread {
         let region = Region::reserve(size)?;
         region.map_zero(0, size)?;
         let tp = region.address() + below;
+        let host = HostBlock::new(tp)?;
         let at = |address: u64| address - region.address();
 
         for m in &layout.modules {
@@ -117,13 +119,14 @@ impl GuestThread {
             (tcb::SELF_AGAIN, tp),
             (tcb::STACK_GUARD, guard),
             (tcb::POINTER_GUARD, random_word()),
-            (tcb::HOST_TSD, host),
-            (tcb::BRIDGE_TOP, tp + tcb::BRIDGE_FRAMES),
+            (tcb::SYSINFO, bridge::syscall_entry()),
+            (tcb::HOST_BLOCK, host.address()),
         ] {
             region.write_u64(at(tp + offset), value)?;
         }
         Ok(Self {
             region,
+            _host: host,
             tp,
             _not_send: PhantomData,
         })
