@@ -489,6 +489,34 @@ mod tests {
     }
 
     #[test]
+    fn flock_and_utimes_reach_the_file() {
+        let path = std::env::temp_dir().join(format!("cs2metal-flock-{}", std::process::id()));
+        let file = std::fs::File::create(&path).expect("file");
+        let fd = std::os::fd::AsRawFd::as_raw_fd(&file) as u64;
+        assert_eq!(call(73, [fd, 2 | 4, 0, 0, 0, 0]), 0, "LOCK_EX | LOCK_NB");
+        assert_eq!(call(73, [fd, 8, 0, 0, 0, 0]), 0, "LOCK_UN");
+        let name = CString::new(path.to_string_lossy().as_bytes()).expect("path");
+        let times = [1_000_000_000i64, 0, 1_000_000_000, 0];
+        assert_eq!(
+            call(
+                235,
+                [name.as_ptr() as u64, times.as_ptr() as u64, 0, 0, 0, 0]
+            ),
+            0
+        );
+        let modified = std::fs::metadata(&path)
+            .expect("stat")
+            .modified()
+            .expect("mtime");
+        assert_eq!(
+            modified,
+            std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000_000)
+        );
+        drop(file);
+        let _ = std::fs::remove_file(path);
+    }
+
+    #[test]
     fn link_makes_a_second_name() {
         let dir = std::env::temp_dir().join(format!("cs2metal-link-{}", std::process::id()));
         std::fs::create_dir_all(&dir).expect("dir");

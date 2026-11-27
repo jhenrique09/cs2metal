@@ -183,6 +183,9 @@ fn kill(signal: u64) -> i64 {
 /// Handles the system calls of this module.
 pub(crate) fn answer(f: &SyscallFrame) -> Option<i64> {
     let (a0, a1, a2, a3) = (f.arg0, f.arg1, f.arg2, f.arg3);
+    if let Some(value) = crate::ipc::answer(f.number, [a0, a1, a2, a3]) {
+        return Some(value);
+    }
     let fd = a0 as libc::c_int;
     // SAFETY: every call below passes the guest's own arguments to libSystem, as
     // the Linux kernel would use them, in the guest's address space.
@@ -201,6 +204,8 @@ pub(crate) fn answer(f: &SyscallFrame) -> Option<i64> {
             33 => result(i64::from(libc::dup2(fd, a1 as libc::c_int))),
             35 => sleep(a0),
             62 => kill(a1),
+            // flock: the same operations (LOCK_SH, LOCK_EX, LOCK_NB, LOCK_UN).
+            73 => result(i64::from(libc::flock(fd, a1 as libc::c_int))),
             74 | 75 => result(i64::from(libc::fsync(fd))),
             77 => result(i64::from(libc::ftruncate(fd, a1 as libc::off_t))),
             80 => match host_path(a0, libc::AT_FDCWD, Use::Read) {
@@ -374,6 +379,32 @@ pub(crate) fn answer(f: &SyscallFrame) -> Option<i64> {
                     a2 as libc::mode_t,
                     0,
                 ))),
+                Err(e) => e,
+            },
+            // utimes: struct timeval[2], or null for now; the host's timeval holds
+            // the microseconds in the low half of Linux's 64-bit field.
+            235 => match host_path(a0, libc::AT_FDCWD, Use::Modify) {
+                Ok(p) => {
+                    let times = if a1 == 0 {
+                        None
+                    } else {
+                        let [s0, u0, s1, u1] = std::ptr::read_unaligned(a1 as *const [i64; 4]);
+                        Some([
+                            libc::timeval {
+                                tv_sec: s0,
+                                tv_usec: u0 as i32,
+                            },
+                            libc::timeval {
+                                tv_sec: s1,
+                                tv_usec: u1 as i32,
+                            },
+                        ])
+                    };
+                    result(i64::from(libc::utimes(
+                        p.as_ptr(),
+                        times.as_ref().map_or(std::ptr::null(), |t| t.as_ptr()),
+                    )))
+                }
                 Err(e) => e,
             },
             269 => match host_path(a1, dirfd(a0 as i64), Use::Read) {

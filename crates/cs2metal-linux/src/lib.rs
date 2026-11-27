@@ -11,6 +11,7 @@
 mod brk;
 mod epoll;
 mod fds;
+mod ipc;
 mod mmap;
 mod more;
 mod net;
