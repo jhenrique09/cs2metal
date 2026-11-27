@@ -212,10 +212,10 @@ Gate: a window opens and audio plays.
 First gate, the goal of the roadmap: the game presents its startup screen in its own
 window. Second gate: the main menu renders.
 
-First gate passed on 27 November 2026: the game presented its startup screen in its
-own window, on MoltenVK through the [Vulkan bridge](VULKAN_BRIDGE.md)
-([first client boots](FIRST_CLIENT_BOOT_2026-11-27.md)). The main menu state is
-reached; whether it renders correctly is to be confirmed on screen.
+Not passed yet: the window and the software splash appear through the
+[SDL bridge](SDL_BRIDGE.md), and the renderer's swapchain presents on MoltenVK
+through the [Vulkan bridge](VULKAN_BRIDGE.md), twice, before stopping while the
+window is not in front ([what the client's window shows](CLIENT_RENDERING_2026-11-27.md)).
 
 ### M7: Steam
 

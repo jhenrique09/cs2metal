@@ -592,10 +592,11 @@ swapchain; the first frames. **Gate, and the goal of this roadmap: the game pres
 its startup screen in its own window.** Record a screenshot description, the log,
 and the driver used in the implementation plan.
 
-State: **gate met on 27 November 2026** ([first client boots](FIRST_CLIENT_BOOT_2026-11-27.md)).
-The game opened its window and presented its startup screen, the Valve logo, which
-the owner photographed, on MoltenVK on an Apple M1 Max. A later boot reached the
-main menu state about 15 seconds after start.
+State: **not met yet** ([what the client's window shows](CLIENT_RENDERING_2026-11-27.md)).
+The Valve logo the owner photographed on 27 November 2026 is the game's software
+splash, drawn with SDL surfaces. The renderer's swapchain is created on MoltenVK
+and presents twice, then stops while the window is not in front. The client
+reaches its main menu state.
 
 ## After the first frame
 
