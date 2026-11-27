@@ -60,6 +60,24 @@ enum Command {
         #[command(subcommand)]
         action: TlsAction,
     },
+    /// Start CS2's Linux build, verified against its baseline first, under the
+    /// rebuilt glibc, as the game's own cs2.sh would on Linux. Only in an x86-64
+    /// build of cs2metal. Arguments after `--` go to the engine.
+    Run {
+        /// The installation (the directory that holds `game/`).
+        #[arg(long)]
+        game_dir: PathBuf,
+        /// The Steam Linux Runtime 3 `files` directory (from roadmap step A5).
+        #[arg(long)]
+        runtime_dir: PathBuf,
+        /// The rebuilt glibc (target/guest-glibc).
+        #[arg(long, default_value = "target/guest-glibc")]
+        glibc: PathBuf,
+        #[arg(long, default_value = DEFAULT_BASELINE)]
+        baseline: PathBuf,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// Run a Linux program under the rebuilt glibc of tools/guest-glibc.sh, with its
     /// system calls answered by the host. Only in an x86-64 build of cs2metal.
     Exec {
@@ -255,6 +273,13 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         }
         Command::Baseline { action } => baseline(action),
         Command::Vulkan { action } => vulkan(action),
+        Command::Run {
+            game_dir,
+            runtime_dir,
+            glibc,
+            baseline,
+            args,
+        } => run_game(&game_dir, &runtime_dir, &glibc, &baseline, args),
         Command::Exec {
             glibc,
             library_path,
@@ -323,6 +348,72 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 },
             )
         }
+    }
+}
+
+/// Verifies the installation against its baseline, quickly; prints differences.
+fn verify_installation(game_dir: &Path, baseline: &Path) -> Result<bool, String> {
+    let text = fs::read_to_string(baseline).map_err(|e| format!("{}: {e}", baseline.display()))?;
+    let recorded = Baseline::from_json(&text).map_err(|e| e.to_string())?;
+    let report = with_progress(|p| cs2metal_integrity::verify(game_dir, &recorded, Mode::Quick, p))
+        .map_err(|e| e.to_string())?;
+    for difference in report.differences.iter().take(20) {
+        println!("{difference}");
+    }
+    eprintln!(
+        "cs2metal: {} files checked, {} differences",
+        report.files_checked,
+        report.differences.len()
+    );
+    Ok(report.is_clean())
+}
+
+/// `cs2metal run`: the installation verified, then the engine started as cs2.sh
+/// would start it on Linux: from `game/`, with `bin/linuxsteamrt64` on the library
+/// path, on the Steam Linux Runtime's libraries.
+fn run_game(
+    game_dir: &Path,
+    runtime_dir: &Path,
+    glibc: &Path,
+    baseline: &Path,
+    args: Vec<String>,
+) -> Result<ExitCode, String> {
+    if !verify_installation(game_dir, baseline)? {
+        eprintln!("cs2metal: the installation differs from its baseline; not starting");
+        return Ok(ExitCode::from(EXIT_MISMATCH));
+    }
+    let absolute = |p: &Path| std::path::absolute(p).map_err(|e| format!("{}: {e}", p.display()));
+    let game = absolute(&game_dir.join("game"))?;
+    let bin = game.join("bin/linuxsteamrt64");
+    let glibc = absolute(glibc)?;
+    let runtime = absolute(runtime_dir)?;
+    let library_path = vec![
+        glibc.clone(),
+        bin.clone(),
+        runtime.join("lib/x86_64-linux-gnu"),
+        runtime.join("usr/lib/x86_64-linux-gnu"),
+    ];
+    let home = std::env::var("HOME").unwrap_or_default();
+    let user = std::env::var("USER").unwrap_or_default();
+    let env = vec![
+        format!("HOME={home}"),
+        format!("USER={user}"),
+        "PATH=/usr/bin:/bin".to_owned(),
+        "LANG=C.UTF-8".to_owned(),
+        format!("LD_LIBRARY_PATH={}", bin.display()),
+    ];
+    std::env::set_current_dir(&game).map_err(|e| format!("{}: {e}", game.display()))?;
+    let launch = cs2metal_linux::Launch {
+        ld_so: glibc.join("ld-linux-x86-64.so.2"),
+        library_path,
+        program: bin.join("cs2"),
+        args,
+        env,
+    };
+    eprintln!("cs2metal: starting {}", launch.program.display());
+    match cs2metal_linux::exec(&launch) {
+        Ok(never) => match never {},
+        Err(e) => Err(e.to_string()),
     }
 }
 

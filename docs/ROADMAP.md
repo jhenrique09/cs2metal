@@ -442,22 +442,30 @@ target/x86_64-apple-darwin/debug/cs2metal exec --glibc target/guest-glibc \
   target/fixtures/cxx
 ```
 
-### C4. `cs2metal run` and the first engine boot (to build, M, then iterative)
+### C4. `cs2metal run` and the first engine boot (exists today, then iterative)
 
 The command this roadmap is building toward:
 
 ```bash
+CS2METAL_BUILD_HOST=<ssh destination> tools/guest-glibc.sh
 cargo build --release --target x86_64-apple-darwin -p cs2metal
 target/x86_64-apple-darwin/release/cs2metal run \
   --game-dir ~/cs2metal-kit/cs2-linux \
-  --runtime-dir ~/cs2metal-kit/sniper \
-  -- -insecure -novid -windowed -width 1280 -height 720
+  --runtime-dir ~/cs2metal-kit/sniper/files \
+  -- -dedicated -insecure +map de_dust2 2> runs/boot.log
 ```
 
-It does not exist yet. When it does, it verifies the baseline, sets the guest
-environment, loads `cs2`, and logs to the ignored `runs/` directory: every module
-loaded, every file the guest opens, and every unresolved import when first called.
-The paths can also come from an ignored `cs2metal.local.toml`.
+It verifies the installation against its baseline (quick mode) and refuses to start
+on any difference. Then, as the game's own `cs2.sh` does on Linux, it starts
+`bin/linuxsteamrt64/cs2` from `game/`, with `bin/linuxsteamrt64` on the library
+path, on the runtime's libraries (`files/lib/x86_64-linux-gnu`, extracted from the
+A5 tarball). The rebuilt glibc comes first. Unsupported system calls are named once
+on standard error, and `CS2METAL_TRACE=1` logs every call. A per-run log directory
+and a `cs2metal.local.toml` for the paths can follow.
+
+State: built on 27 November 2026 and tested on a stand-in installation, the `hello`
+fixture installed as `cs2`. Running the real game is an owner action, by the
+repository's agent guidelines (`AGENTS.md`).
 
 From here the work is a loop: run, read which import or behavior stopped the boot,
 implement it, commit, run again. Gate: the engine's own log shows its Steam

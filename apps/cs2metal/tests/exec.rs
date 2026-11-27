@@ -105,3 +105,68 @@ fn tls_from_four_threads() {
 fn tlsprobe_from_four_threads() {
     run("tlsprobe", &[], false);
 }
+
+/// `cs2metal run` on a stand-in installation: the hello fixture as
+/// game/bin/linuxsteamrt64/cs2. It must verify the baseline, refuse a modified
+/// installation, and start the program from game/ with the engine's arguments.
+#[test]
+fn run_verifies_the_installation_and_starts_from_game() {
+    let fixtures = root().join("target/fixtures");
+    let glibc = root().join("target/guest-glibc");
+    if !fixtures.join("hello").exists() || !glibc.join("ld-linux-x86-64.so.2").exists() {
+        eprintln!("skipped: run; run tools/fixtures.sh and tools/guest-glibc.sh");
+        return;
+    }
+    let dir = tempfile::tempdir().expect("temp dir");
+    let bin = dir.path().join("game/bin/linuxsteamrt64");
+    std::fs::create_dir_all(&bin).expect("mkdir");
+    std::fs::copy(fixtures.join("hello"), bin.join("cs2")).expect("copy");
+    // The runtime and the baseline live outside the installation, as they do for
+    // the real game.
+    let outside = tempfile::tempdir().expect("temp dir");
+    let runtime = outside.path().join("runtime");
+    std::fs::create_dir_all(runtime.join("lib/x86_64-linux-gnu")).expect("mkdir");
+    let baseline = outside.path().join("baseline.json");
+    let record = Command::new(env!("CARGO_BIN_EXE_cs2metal"))
+        .args(["baseline", "record"])
+        .arg(dir.path())
+        .arg("--output")
+        .arg(&baseline)
+        .output()
+        .expect("record");
+    assert!(record.status.success());
+
+    let run = || {
+        Command::new(env!("CARGO_BIN_EXE_cs2metal"))
+            .arg("run")
+            .arg("--game-dir")
+            .arg(dir.path())
+            .arg("--runtime-dir")
+            .arg(&runtime)
+            .arg("--glibc")
+            .arg(&glibc)
+            .arg("--baseline")
+            .arg(&baseline)
+            .args(["--", "-dedicated", "+map"])
+            .output()
+            .expect("run")
+    };
+    let out = run();
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert_eq!(
+        out.status.code(),
+        Some(3),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(stdout.contains("argv[1]=-dedicated"));
+    assert!(stdout.contains("argv[2]=+map"));
+
+    std::fs::write(bin.join("cs2"), b"changed").expect("modify");
+    let refused = run();
+    assert_eq!(
+        refused.status.code(),
+        Some(4),
+        "a modified installation is refused"
+    );
+}
