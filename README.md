@@ -1,3 +1,24 @@
+<p align="center">
+  <img src="docs/images/banner.svg" width="100%" alt="cs2metal: the native Linux build of Counter-Strike 2, on Apple silicon Macs. No Wine, no virtual machine, no modified game file.">
+</p>
+
+<p align="center">
+  <a href="https://github.com/jhenrique09/cs2metal/actions/workflows/check.yml"><img alt="Checks" src="https://github.com/jhenrique09/cs2metal/actions/workflows/check.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="Licence: GPL-3.0" src="https://img.shields.io/badge/licence-GPL--3.0-blue"></a>
+  <img alt="Platform: Apple silicon" src="https://img.shields.io/badge/platform-Apple%20silicon-black?logo=apple">
+  <img alt="Written in Rust" src="https://img.shields.io/badge/written%20in-Rust-dea584?logo=rust">
+  <a href="docs/CLIENT_PLAYABLE_2026-11-27.md"><img alt="Status: playable" src="https://img.shields.io/badge/status-playable-2ea44f"></a>
+</p>
+
+<p align="center">
+  <a href="#install">Install</a> ·
+  <a href="#play">Play</a> ·
+  <a href="#how-it-works">How it works</a> ·
+  <a href="docs/README.md">Documentation</a> ·
+  <a href="CONTRIBUTING.md">Contributing</a> ·
+  <a href="SUPPORT.md">Help</a>
+</p>
+
 # cs2metal
 
 Counter-Strike 2 on Apple silicon Macs, by running the game's **native Linux build**
@@ -224,6 +245,7 @@ against the bundled modules, and lists what a host must provide. Reports go to
 | `tools/` | The check suite every commit must pass, the repository guard, and the helpers the scripts above use |
 | `fixtures/`, `spikes/` | Linux test programs the loader is tested with, and small platform probes |
 | `docs/` | Architecture, decision records, the roadmap and plan, dated measurements, and policies |
+| `.github/` | The checks every pull request runs, Dependabot, and the issue and pull request templates |
 
 ## Documentation
 
@@ -235,6 +257,19 @@ against the bundled modules, and lists what a host must provide. Reports go to
   [online play](docs/ONLINE_PLAY_2026-11-27.md): what was measured and reported.
 - [Anti-cheat, integrity, and legal policy](docs/ANTI_CHEAT_AND_INTEGRITY_POLICY.md):
   the rules, and the risk.
+
+## Community
+
+- **Questions and ideas**: [Discussions](https://github.com/jhenrique09/cs2metal/discussions).
+  [SUPPORT.md](SUPPORT.md) says where each kind of question goes.
+- **Bugs**: [issues](https://github.com/jhenrique09/cs2metal/issues/new/choose), with
+  the session's log, without your account name.
+- **Code**: [CONTRIBUTING.md](CONTRIBUTING.md) explains the checks, the commits, and
+  how a pull request is reviewed.
+- **Security problems**: privately, as [SECURITY.md](SECURITY.md) says.
+
+Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md). If cs2metal
+runs the game for you, a star helps other Mac players find it.
 
 ## Licence
 
