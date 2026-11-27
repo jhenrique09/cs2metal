@@ -422,7 +422,7 @@ fn answer(f: &mut SyscallFrame) -> u64 {
             104 | 108 => i64::from(libc::getgid()),
             158 => arch_prctl(a0, a1),
             186 => crate::threads::gettid(),
-            202 => crate::threads::futex(a0, a1, a2, a3, f.arg4, f.arg5),
+            202 => crate::threads::futex_call(f),
             218 => crate::threads::set_tid_address(a0),
             228 => clock_gettime(a0, a1),
             257 => match host_path(a1, dirfd(a0 as i64), crate::paths::open_use(a2)) {

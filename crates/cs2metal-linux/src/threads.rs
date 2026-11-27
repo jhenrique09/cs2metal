@@ -188,6 +188,175 @@ pub(crate) fn futex(addr: u64, op: u64, val: u64, timeout: u64, _addr2: u64, _va
     }
 }
 
+// --- The futex trace ---------------------------------------------------------------
+
+/// A guest thread inside a futex wait.
+struct Waiter {
+    addr: u64,
+    /// The value the wait was made against.
+    value: u32,
+    timed: bool,
+    since: std::time::Instant,
+    /// Where the guest made the call, and the caller of glibc's `syscall()` if
+    /// the call went through it.
+    site: u64,
+    via: u64,
+}
+
+/// The wakes of one futex word since the last report.
+#[derive(Default)]
+struct Wakes {
+    calls: u64,
+    /// Calls that found a waiter.
+    woke: u64,
+    tid: u32,
+    site: u64,
+    via: u64,
+}
+
+#[derive(Default)]
+struct Trace {
+    waiters: std::collections::BTreeMap<u32, Waiter>,
+    wakes: std::collections::BTreeMap<u64, Wakes>,
+}
+
+static TRACE: std::sync::Mutex<Option<Trace>> = std::sync::Mutex::new(None);
+
+/// How long a wait lasts before a report names it.
+const PARKED: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The seconds between reports: `CS2METAL_FUTEX_TRACE`, 10 if it is not a number.
+/// `None` without the variable: no trace.
+fn trace_period() -> Option<u64> {
+    static PERIOD: std::sync::OnceLock<Option<u64>> = std::sync::OnceLock::new();
+    *PERIOD.get_or_init(|| {
+        let value = std::env::var("CS2METAL_FUTEX_TRACE").ok()?;
+        Some(value.parse().ok().filter(|&s| s > 0).unwrap_or(10))
+    })
+}
+
+/// The report's lines: every wait older than [`PARKED`], oldest first, with what
+/// the word holds now (`holds`, read by the caller), then the most woken words.
+/// A wait whose word no longer holds its value, on a word that is being woken,
+/// is a wake that did not arrive.
+fn report(trace: &Trace, now: std::time::Instant, holds: impl Fn(u64) -> u32) -> Vec<String> {
+    let mut parked: Vec<(&u32, &Waiter)> = trace
+        .waiters
+        .iter()
+        .filter(|(_, w)| now.duration_since(w.since) >= PARKED)
+        .collect();
+    parked.sort_by_key(|(_, w)| w.since);
+    let mut lines = vec![format!(
+        "cs2metal: futex report: {} waiting, {} of them parked, {} words woken",
+        trace.waiters.len(),
+        parked.len(),
+        trace.wakes.len()
+    )];
+    for (tid, w) in parked {
+        lines.push(format!(
+            "cs2metal: futex thread {tid} parked {}s on {:#x} for {}, holds {}{} from {:#x} via {:#x}",
+            now.duration_since(w.since).as_secs(),
+            w.addr,
+            w.value,
+            holds(w.addr),
+            if w.timed { ", timed" } else { "" },
+            w.site,
+            w.via
+        ));
+    }
+    let mut woken: Vec<(&u64, &Wakes)> = trace.wakes.iter().collect();
+    woken.sort_by_key(|(_, k)| std::cmp::Reverse(k.calls));
+    for (addr, k) in woken.into_iter().take(16) {
+        let waiting = trace.waiters.values().filter(|w| w.addr == *addr).count();
+        lines.push(format!(
+            "cs2metal: futex word {addr:#x} woken {} times, {} found a waiter, {waiting} waiting now, \
+             last by thread {} from {:#x} via {:#x}",
+            k.calls, k.woke, k.tid, k.site, k.via
+        ));
+    }
+    lines
+}
+
+/// Prints a report every `period` seconds, on a host thread.
+fn start_reports(period: u64) {
+    static STARTED: std::sync::Once = std::sync::Once::new();
+    STARTED.call_once(|| {
+        std::thread::spawn(move || {
+            loop {
+                std::thread::sleep(std::time::Duration::from_secs(period));
+                let Ok(mut trace) = TRACE.lock() else {
+                    return;
+                };
+                let Some(trace) = trace.as_mut() else {
+                    continue;
+                };
+                // SAFETY: a thread is waiting on each word read, so it is mapped.
+                let holds = |addr: u64| unsafe { std::ptr::read_volatile(addr as *const u32) };
+                for line in report(trace, std::time::Instant::now(), holds) {
+                    eprintln!("{line}");
+                }
+                trace.wakes.clear();
+            }
+        });
+    });
+}
+
+/// `futex` as the guest's system call `f` makes it. With `CS2METAL_FUTEX_TRACE`
+/// set, the waits in progress and the wakes are recorded for the reports.
+pub(crate) fn futex_call(f: &SyscallFrame) -> i64 {
+    let call = || futex(f.arg0, f.arg1, f.arg2, f.arg3, f.arg4, f.arg5);
+    let Some(period) = trace_period() else {
+        return call();
+    };
+    start_reports(period);
+    let site = f.return_address;
+    // glibc's syscall() makes room for the red zone and calls through the slot,
+    // so its own return address is 128 bytes above the entry's.
+    // SAFETY: the guest's stack above the entry's frame.
+    let via =
+        unsafe { std::ptr::read_unaligned(std::ptr::from_ref(&f.return_address).byte_add(136)) };
+    let tid = gettid() as u32;
+    let cmd = f.arg1 & 0x7f;
+    let with = |change: &mut dyn FnMut(&mut Trace)| {
+        if let Ok(mut trace) = TRACE.lock() {
+            change(trace.get_or_insert_with(Trace::default));
+        }
+    };
+    match cmd {
+        0 | 9 => {
+            with(&mut |t| {
+                t.waiters.insert(
+                    tid,
+                    Waiter {
+                        addr: f.arg0,
+                        value: f.arg2 as u32,
+                        timed: f.arg3 != 0,
+                        since: std::time::Instant::now(),
+                        site,
+                        via,
+                    },
+                );
+            });
+            let result = call();
+            with(&mut |t| {
+                t.waiters.remove(&tid);
+            });
+            result
+        }
+        1 | 10 => {
+            let result = call();
+            with(&mut |t| {
+                let k = t.wakes.entry(f.arg0).or_default();
+                k.calls += 1;
+                k.woke += u64::from(result > 0);
+                (k.tid, k.site, k.via) = (tid, site, via);
+            });
+            result
+        }
+        _ => call(),
+    }
+}
+
 /// Names each futex operation the host does not answer, once.
 fn unsupported_futex(cmd: u64) {
     static SEEN: std::sync::Mutex<u64> = std::sync::Mutex::new(0);
@@ -319,4 +488,83 @@ pub(crate) fn exit_thread(status: u64) -> i64 {
 /// A pointer to this thread's host block, read without holding a borrow.
 fn current_block() -> Option<*const HostBlock> {
     BLOCK.with(|b| b.borrow().as_ref().map(std::ptr::from_ref))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::AtomicBool;
+    use std::time::{Duration, Instant};
+
+    const WAIT: u64 = 0x80;
+    const WAKE: u64 = 0x81;
+
+    #[test]
+    fn a_wait_ends_when_its_word_is_woken() {
+        static WORD: AtomicU32 = AtomicU32::new(0);
+        static DONE: AtomicBool = AtomicBool::new(false);
+        let addr = std::ptr::from_ref(&WORD) as u64;
+        let waiter = std::thread::spawn(move || {
+            while WORD.load(Ordering::SeqCst) == 0 {
+                futex(addr, WAIT, 0, 0, 0, 0);
+            }
+            DONE.store(true, Ordering::SeqCst);
+        });
+        std::thread::sleep(Duration::from_millis(50));
+        WORD.store(1, Ordering::SeqCst);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !DONE.load(Ordering::SeqCst) && Instant::now() < deadline {
+            futex(addr, WAKE, i32::MAX as u64, 0, 0, 0);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert!(DONE.load(Ordering::SeqCst), "the waiter was woken");
+        waiter.join().expect("waiter");
+    }
+
+    #[test]
+    fn a_wait_checks_the_value_and_the_timeout() {
+        let word = AtomicU32::new(7);
+        let addr = std::ptr::from_ref(&word) as u64;
+        assert_eq!(futex(addr, WAIT, 8, 0, 0, 0), EAGAIN);
+        let millisecond: [i64; 2] = [0, 1_000_000];
+        let timeout = std::ptr::from_ref(&millisecond) as u64;
+        assert_eq!(futex(addr, WAIT, 7, timeout, 0, 0), ETIMEDOUT);
+        assert_eq!(futex(addr, WAKE, 1, 0, 0, 0), 0, "nobody was waiting");
+    }
+
+    #[test]
+    fn a_report_names_parked_waits_and_woken_words() {
+        let now = Instant::now() + Duration::from_secs(60);
+        let wait = |addr, age| Waiter {
+            addr,
+            value: 0,
+            timed: false,
+            since: now - Duration::from_secs(age),
+            site: 0x1000,
+            via: 0x2000,
+        };
+        let mut trace = Trace::default();
+        trace.waiters.insert(11, wait(0x500, 30));
+        trace.waiters.insert(12, wait(0x600, 0));
+        trace.wakes.insert(
+            0x500,
+            Wakes {
+                calls: 9,
+                woke: 0,
+                tid: 10,
+                site: 0x3000,
+                via: 0x4000,
+            },
+        );
+        let lines = report(&trace, now, |_| 1);
+        assert_eq!(
+            lines,
+            [
+                "cs2metal: futex report: 2 waiting, 1 of them parked, 1 words woken",
+                "cs2metal: futex thread 11 parked 30s on 0x500 for 0, holds 1 from 0x1000 via 0x2000",
+                "cs2metal: futex word 0x500 woken 9 times, 0 found a waiter, 1 waiting now, \
+                 last by thread 10 from 0x3000 via 0x4000",
+            ]
+        );
+    }
 }

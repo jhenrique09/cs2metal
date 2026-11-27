@@ -127,6 +127,9 @@ that made it.
 - Threads: `clone` with glibc's flags becomes a host thread whose GS starts at the new
   thread's control block; `futex` becomes `__ulock_wait` and `__ulock_wake`;
   `set_robust_list` and `rseq` are recorded or declined as glibc tolerates.
+  `CS2METAL_FUTEX_TRACE=<seconds>` reports, at that period, each wait parked for two
+  seconds or more (its word, the value waited against and the value held now, and
+  the guest code that made the call) and the most woken words.
 - Memory: `mmap`, `munmap`, `mprotect`, `brk`, and `madvise`, with T-001 at executable
   file mappings.
 - Linux-only files and calls the game reads are synthesized: `/proc/self/exe`,
