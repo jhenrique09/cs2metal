@@ -44,6 +44,49 @@ pub(crate) fn redirect(path: &CStr) -> Option<CString> {
         .flatten()
 }
 
+/// Where the macOS Steam client's executable ends, in its process's path.
+const CLIENT_EXECUTABLE: &str = "/Steam.AppBundle/Steam/Contents/MacOS/steam_osx";
+
+/// The id of a running process whose executable's path ends with `suffix`.
+fn process_running(suffix: &str) -> Option<i32> {
+    // SAFETY: with no buffer, proc_listallpids returns the number of processes.
+    let count = unsafe { libc::proc_listallpids(std::ptr::null_mut(), 0) };
+    let mut pids = vec![0i32; usize::try_from(count).ok()? + 64];
+    // SAFETY: the buffer holds `pids.len()` ids; its size is given in bytes.
+    let filled = unsafe {
+        libc::proc_listallpids(
+            pids.as_mut_ptr().cast(),
+            (pids.len() * std::mem::size_of::<i32>()) as libc::c_int,
+        )
+    };
+    pids.truncate(usize::try_from(filled).ok()?);
+    let mut path = vec![0u8; 4 * libc::PATH_MAX as usize];
+    pids.into_iter().find(|&pid| {
+        // SAFETY: proc_pidpath writes at most the buffer's length.
+        let len = unsafe { libc::proc_pidpath(pid, path.as_mut_ptr().cast(), path.len() as u32) };
+        usize::try_from(len).is_ok_and(|len| len > 0 && path[..len].ends_with(suffix.as_bytes()))
+    })
+}
+
+/// The host file standing for `~/.steam/steam.pid`, written now: the process id
+/// of the owner's macOS Steam client. `None` for any other path, and while that
+/// client is not running, when the file is absent as it is on Linux.
+///
+/// The public Steamworks `SteamAPI_IsSteamRunning` reads the id there and asks,
+/// with `kill` and signal 0, whether that process lives; the host answers that
+/// for the same process. Nothing is written to the owner's home.
+pub(crate) fn pid_file(path: &CStr) -> Option<CString> {
+    if !path.to_bytes().ends_with(b"/.steam/steam.pid") {
+        return None;
+    }
+    let pid = process_running(CLIENT_EXECUTABLE)?;
+    let directory = std::env::temp_dir().join(format!("cs2metal-{}-steam", std::process::id()));
+    std::fs::create_dir_all(&directory).ok()?;
+    let host = directory.join("steam.pid");
+    std::fs::write(&host, format!("{pid}\n")).ok()?;
+    CString::new(host.to_string_lossy().as_bytes()).ok()
+}
+
 fn client_library() -> String {
     std::env::var("CS2METAL_STEAMCLIENT").unwrap_or_else(|_| {
         let home = std::env::var("HOME").unwrap_or_default();
@@ -378,7 +421,40 @@ pub(crate) fn bind(table: u64, names: u64, count: u64) -> i64 {
 
 #[cfg(test)]
 mod tests {
-    use super::names_string;
+    use super::*;
+
+    #[test]
+    fn a_running_process_is_found_by_its_executable() {
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .expect("child");
+        let found = process_running("/bin/sleep");
+        child.kill().expect("kill");
+        child.wait().expect("wait");
+        assert!(found.is_some());
+        assert!(process_running("/no/such/executable").is_none());
+    }
+
+    #[test]
+    fn only_the_steam_pid_file_is_answered() {
+        let at = |p: &str| pid_file(&CString::new(p).expect("path"));
+        assert!(at("/x/.steam/steam.pid.lock").is_none());
+        assert!(at("/x/.steam/registry.vdf").is_none());
+        // With the owner's client running the file holds its id; without it
+        // there is no file.
+        match (
+            process_running(CLIENT_EXECUTABLE),
+            at("/x/.steam/steam.pid"),
+        ) {
+            (Some(pid), Some(host)) => {
+                let text = std::fs::read_to_string(host.to_str().expect("utf-8")).expect("read");
+                assert_eq!(text, format!("{pid}\n"));
+            }
+            (None, None) => {}
+            (pid, host) => panic!("client {pid:?}, file {host:?}"),
+        }
+    }
 
     #[test]
     fn a_version_must_be_a_whole_string() {

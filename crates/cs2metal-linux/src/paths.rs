@@ -131,6 +131,9 @@ pub(crate) fn resolve<'a>(
         if let Some(kernel) = crate::procfs::synthesize(path.to_bytes()) {
             return Ok(Cow::Owned(kernel));
         }
+        if let Some(pid) = crate::steam::pid_file(path) {
+            return Ok(Cow::Owned(pid));
+        }
     }
     let Some(overlay) = OVERLAY.get() else {
         return Ok(Cow::Borrowed(path));

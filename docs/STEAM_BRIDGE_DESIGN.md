@@ -70,6 +70,12 @@ these lookups from the real state of the Mac:
 
 - Whether Steam is running is the truth about the macOS Steam process, with its real
   process id. If Steam is not running, the guest sees exactly that.
+  Built on 27 November 2026. Observed: the public `SteamAPI_IsSteamRunning` reads a
+  process id from `~/.steam/steam.pid` and asks, with `kill` and signal 0, whether
+  that process lives. A read of that path is answered with a file, written outside
+  the owner's home, that holds the id of the running macOS Steam client, found by
+  its executable; while the client is not running there is no file. In client boot
+  49 the game's Steam API no longer reported that it found no running Steam.
 - The path of the client library resolves to a name the loader recognizes.
 
 Nothing is written to disk and no Steam file is touched.
