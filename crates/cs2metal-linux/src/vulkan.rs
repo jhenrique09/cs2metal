@@ -646,6 +646,9 @@ extern "C" fn acquire_next_image(
 /// How often the trace reports the pacing of presents.
 const PACING_PERIOD: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// An interval between presents long enough to be named on its own.
+const LONG_PRESENT: std::time::Duration = std::time::Duration::from_millis(250);
+
 /// The intervals between presents since the last report, in microseconds.
 struct Pacing {
     last: Option<std::time::Instant>,
@@ -692,6 +695,18 @@ fn note_present() {
         pacing
             .intervals
             .push(u32::try_from(micros).unwrap_or(u32::MAX));
+        if micros >= LONG_PRESENT.as_micros() {
+            // The time of day, to set beside the game's own console log.
+            let clock = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_millis());
+            eprintln!(
+                "cs2metal: present {} ms after the one before, at {}.{:03} (Unix time)",
+                micros / 1000,
+                clock / 1000,
+                clock % 1000
+            );
+        }
     }
     pacing.last = Some(now);
     let since = *pacing.since.get_or_insert(now);

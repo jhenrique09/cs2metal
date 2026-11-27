@@ -47,6 +47,8 @@ unchanged; MoltenVK does not call them.
 requests, the measurement Q-7 asks for. It also counts the swapchain's calls, and
 every ten seconds reports the pacing of presents: how many, the median interval,
 the 99th percentile, the longest, and how many took more than twice the median.
+A present more than 250 ms after the one before is named on its own, with the time
+of day, to set beside the game's console log.
 `MVK_CONFIG_SHOULD_MAXIMIZE_CONCURRENT_COMPILATION` is set to 1 in the host
 environment unless the owner sets it: MoltenVK then lets Metal compile several
 shaders at once, where by default it compiles one at a time, while the renderer
