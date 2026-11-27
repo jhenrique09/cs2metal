@@ -134,6 +134,29 @@ Other arguments go to the engine: `run.sh +map de_dust2`. Diagnostic variables s
 as `CS2METAL_SDL_TRACE=1` and `CS2METAL_VULKAN_TRACE=1` pass through to the host
 and write to the session's log.
 
+### Keep the shader caches: quit the game, never kill it
+
+Two caches hold what the first sessions compiled, and later sessions are smooth
+because of them: the game's own pipeline cache, among what it writes
+(`~/cs2-metal/data/cs2-linux.overlay/game/csgo/shadercache/`), and Metal's compiled
+shaders, in the user's cache directory (`com.apple.metal`). Three habits keep them:
+
+- **Quit, do not kill.** Quit from the game's menu, or with Ctrl-C in the terminal
+  that started it; both let the game shut itself down. Do not use `kill -9` or
+  Force Quit. After test boots that were ended in the middle of their work, the
+  next start spent two minutes on a black screen compiling its Metal shaders
+  again (seen on 27 November 2026; the cause is INFERRED from the order of events).
+- **Leave the host program where it is.** Do not move or copy
+  `~/cs2-metal/bin/cs2metal` and start it from another path. Its first boot from a
+  path it never ran from sat four minutes on a black screen while Metal compiled
+  every shader again (seen on 27 November 2026). Building it again at the same
+  path did not do that.
+- **Warm a map up offline before playing it online.** The first minutes on a map
+  never played stutter while its pipelines are compiled for the first time: 16 of
+  the 28 stalls of one online match fell in its first minute
+  ([measurements](PERFORMANCE_AB_2026-11-27.md)). A few minutes of
+  `run.sh -offline +map de_mirage` with bots leave both caches filled for that map.
+
 ## A shortcut
 
 ```bash
