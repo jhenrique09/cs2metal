@@ -114,6 +114,9 @@ fn wrapper(name: &[u8]) -> Option<u64> {
         b"vkCreateDebugUtilsMessengerEXT" => create_debug_utils_messenger as *const (),
         b"vkCreateDebugReportCallbackEXT" => create_debug_report_callback as *const (),
         b"vkEnumerateDeviceExtensionProperties" => enumerate_device_extensions as *const (),
+        b"vkCreateSwapchainKHR" if tracing() => create_swapchain as *const (),
+        b"vkAcquireNextImageKHR" if tracing() => acquire_next_image as *const (),
+        b"vkQueuePresentKHR" if tracing() => queue_present as *const (),
         _ => return None,
     };
     Some(f as u64)
@@ -128,6 +131,11 @@ fn guest_function(name: &CStr, host: u64) -> u64 {
     );
     if host == 0 && !always {
         return 0;
+    }
+    if tracing() && host != 0 {
+        if let Some(w) = traced_wrapper(name.to_bytes(), host) {
+            return host_entry(w);
+        }
     }
     match wrapper(name.to_bytes()) {
         Some(w) => host_entry(w),
@@ -438,6 +446,184 @@ extern "C" fn enumerate_device_extensions(
         *count = room as u32;
         if room < kept.len() { 5 } else { VK_SUCCESS } // VK_INCOMPLETE
     }
+}
+
+/// The loader's device function `name`, for the traced wrappers.
+fn device_function(device: u64, name: &CStr) -> u64 {
+    let gdpa = real(|s| s.get_device_proc_addr);
+    if gdpa == 0 {
+        return 0;
+    }
+    // SAFETY: the loader's vkGetDeviceProcAddr.
+    let gdpa: GetProcAddr = unsafe { std::mem::transmute(gdpa) };
+    gdpa(device, name.as_ptr())
+}
+
+static DEVICE: Mutex<u64> = Mutex::new(0);
+
+/// Counts calls and results of a traced function, logging the first few and
+/// every change of result.
+fn count(what: &str, result: i32) {
+    static SEEN: Mutex<Vec<(String, i32, u64)>> = Mutex::new(Vec::new());
+    let Ok(mut seen) = SEEN.lock() else {
+        return;
+    };
+    let entry = seen.iter_mut().find(|(w, _, _)| w == what);
+    match entry {
+        Some((_, last, n)) => {
+            *n += 1;
+            if *last != result || n.is_power_of_two() {
+                eprintln!("cs2metal: {what} returned {result} (call {n})");
+                *last = result;
+            }
+        }
+        None => {
+            eprintln!("cs2metal: {what} returned {result} (call 1)");
+            seen.push((what.to_owned(), result, 1));
+        }
+    }
+}
+
+/// `vkCreateSwapchainKHR`, traced: the extent, format, and present mode.
+extern "C" fn create_swapchain(device: u64, info: u64, allocator: u64, out: u64) -> i32 {
+    if let Ok(mut d) = DEVICE.lock() {
+        *d = device;
+    }
+    let f = device_function(device, c"vkCreateSwapchainKHR");
+    if f == 0 || info == 0 {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    // VkSwapchainCreateInfoKHR: minImageCount at 32, format 36, color space 40,
+    // extent 44 and 48, present mode at 88 (after the queue family fields).
+    // SAFETY: the guest passes a VkSwapchainCreateInfoKHR.
+    let field = |o: u64| unsafe { std::ptr::read_unaligned((info + o) as *const u32) };
+    eprintln!(
+        "cs2metal: vkCreateSwapchainKHR images {} format {} colorspace {} extent {}x{} present mode {}",
+        field(32),
+        field(36),
+        field(40),
+        field(44),
+        field(48),
+        field(88)
+    );
+    // SAFETY: the loader's vkCreateSwapchainKHR.
+    let f: extern "C" fn(u64, u64, u64, u64) -> i32 = unsafe { std::mem::transmute(f as usize) };
+    let result = f(device, info, allocator, out);
+    count("vkCreateSwapchainKHR", result);
+    result
+}
+
+/// `vkAcquireNextImageKHR`, traced.
+extern "C" fn acquire_next_image(
+    device: u64,
+    swapchain: u64,
+    timeout: u64,
+    semaphore: u64,
+    fence: u64,
+    index: u64,
+) -> i32 {
+    let f = device_function(device, c"vkAcquireNextImageKHR");
+    if f == 0 {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    // SAFETY: the loader's vkAcquireNextImageKHR.
+    let f: extern "C" fn(u64, u64, u64, u64, u64, u64) -> i32 =
+        unsafe { std::mem::transmute(f as usize) };
+    let result = f(device, swapchain, timeout, semaphore, fence, index);
+    count("vkAcquireNextImageKHR", result);
+    result
+}
+
+/// `vkQueuePresentKHR`, traced.
+extern "C" fn queue_present(queue: u64, info: u64) -> i32 {
+    let device = DEVICE.lock().map_or(0, |d| *d);
+    let f = device_function(device, c"vkQueuePresentKHR");
+    if f == 0 {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    // SAFETY: the loader's vkQueuePresentKHR.
+    let f: extern "C" fn(u64, u64) -> i32 = unsafe { std::mem::transmute(f as usize) };
+    let result = f(queue, info);
+    count("vkQueuePresentKHR", result);
+    result
+}
+
+/// The loader's functions behind the generic traced wrappers, by name.
+static TRACED: Mutex<Vec<(&'static str, u64)>> = Mutex::new(Vec::new());
+
+fn traced_real(name: &str) -> u64 {
+    TRACED
+        .lock()
+        .ok()
+        .and_then(|t| t.iter().find(|(n, _)| *n == name).map(|(_, f)| *f))
+        .unwrap_or(0)
+}
+
+/// A wrapper that calls the loader's function `$name` with up to six integer
+/// arguments and counts its results.
+macro_rules! traced {
+    ($wrapper:ident, $name:literal) => {
+        extern "C" fn $wrapper(a: u64, b: u64, c: u64, d: u64, e: u64, f: u64) -> i32 {
+            let real = traced_real($name);
+            if real == 0 {
+                return VK_ERROR_INITIALIZATION_FAILED;
+            }
+            type Six = extern "C" fn(u64, u64, u64, u64, u64, u64) -> i32;
+            // SAFETY: the loader's function of that name, which takes at most six
+            // integer arguments; extra ones are ignored by the ABI.
+            let real = unsafe { std::mem::transmute::<usize, Six>(real as usize) };
+            let result = real(a, b, c, d, e, f);
+            count($name, result);
+            result
+        }
+    };
+}
+
+traced!(traced_queue_submit, "vkQueueSubmit");
+traced!(traced_queue_submit2, "vkQueueSubmit2");
+traced!(traced_queue_submit2_khr, "vkQueueSubmit2KHR");
+traced!(traced_wait_for_fences, "vkWaitForFences");
+traced!(traced_get_fence_status, "vkGetFenceStatus");
+traced!(traced_wait_semaphores, "vkWaitSemaphores");
+traced!(traced_wait_semaphores_khr, "vkWaitSemaphoresKHR");
+traced!(traced_semaphore_value, "vkGetSemaphoreCounterValue");
+traced!(traced_semaphore_value_khr, "vkGetSemaphoreCounterValueKHR");
+traced!(traced_device_wait_idle, "vkDeviceWaitIdle");
+traced!(traced_queue_wait_idle, "vkQueueWaitIdle");
+traced!(traced_wait_for_present, "vkWaitForPresentKHR");
+
+/// The generic traced wrapper for `name`, recording the loader's function.
+fn traced_wrapper(name: &[u8], host: u64) -> Option<u64> {
+    let (key, f): (&'static str, *const ()) = match name {
+        b"vkQueueSubmit" => ("vkQueueSubmit", traced_queue_submit as *const ()),
+        b"vkQueueSubmit2" => ("vkQueueSubmit2", traced_queue_submit2 as *const ()),
+        b"vkQueueSubmit2KHR" => ("vkQueueSubmit2KHR", traced_queue_submit2_khr as *const ()),
+        b"vkWaitForFences" => ("vkWaitForFences", traced_wait_for_fences as *const ()),
+        b"vkGetFenceStatus" => ("vkGetFenceStatus", traced_get_fence_status as *const ()),
+        b"vkWaitSemaphores" => ("vkWaitSemaphores", traced_wait_semaphores as *const ()),
+        b"vkWaitSemaphoresKHR" => (
+            "vkWaitSemaphoresKHR",
+            traced_wait_semaphores_khr as *const (),
+        ),
+        b"vkGetSemaphoreCounterValue" => (
+            "vkGetSemaphoreCounterValue",
+            traced_semaphore_value as *const (),
+        ),
+        b"vkGetSemaphoreCounterValueKHR" => (
+            "vkGetSemaphoreCounterValueKHR",
+            traced_semaphore_value_khr as *const (),
+        ),
+        b"vkDeviceWaitIdle" => ("vkDeviceWaitIdle", traced_device_wait_idle as *const ()),
+        b"vkQueueWaitIdle" => ("vkQueueWaitIdle", traced_queue_wait_idle as *const ()),
+        b"vkWaitForPresentKHR" => ("vkWaitForPresentKHR", traced_wait_for_present as *const ()),
+        _ => return None,
+    };
+    if let Ok(mut traced) = TRACED.lock() {
+        if !traced.iter().any(|(n, _)| *n == key) {
+            traced.push((key, host));
+        }
+    }
+    Some(f as u64)
 }
 
 /// The instance the game created, for instance-level lookups the bridge makes.
