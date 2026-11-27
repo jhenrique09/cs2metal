@@ -361,7 +361,8 @@ and the driver used in the implementation plan.
 ## After the first frame
 
 The main menu, a local bot match (`-insecure`), audio, and performance work follow in
-milestones M5 to M8 of the implementation plan. Life after Rosetta is milestone M9.
+milestones M5 to M8 of the implementation plan. The project stays on Rosetta, as a
+research prototype, by the [Rosetta horizon decision](ROSETTA_HORIZON_DECISION.md).
 
 ## Critical path and parallel work
 
@@ -379,6 +380,6 @@ milestones M5 to M8 of the implementation plan. Life after Rosetta is milestone 
 | steamcmd will not deliver the Linux depot to a Mac | A4 | Steam console `download_depot`, depot by depot |
 | `cs2` is a fixed-address executable inside the first 4 GB | B2 | Link the host with a small `__PAGEZERO`; known technique |
 | Steam on macOS refuses app 730 | D1 | No Steam for the guest; boot as far as the engine goes without it |
-| No x86-64 Vulkan driver works under Rosetta | F1 | An arm64 helper process for rendering, or the own-translator route of milestone M9 |
+| No x86-64 Vulkan driver works under Rosetta | F1 | Stop and reassess. An arm64 rendering helper is a new project with its own decision record |
 | The `fs` rewrite cannot be made safe on real modules | C2, C4 | The own-translator route |
 | The renderer refuses to start without a capability Metal lacks | F2 | Recorded as a hard limit; nothing is patched |

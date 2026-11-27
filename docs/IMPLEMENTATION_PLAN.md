@@ -143,14 +143,19 @@ Gate: thirty minutes of a local bot match on one map with no crash, launched wit
 
 ### M9: life after Rosetta
 
-Gate, before fall 2027: a dated decision between an own x86-64 to arm64 translator
-and Apple's retained Rosetta subset, backed by measurements.
+By the [Rosetta horizon decision](ROSETTA_HORIZON_DECISION.md) of 27 November 2026,
+the project is a research prototype on Rosetta and no translator work is planned.
+
+- [ ] Test every macOS 28 beta, as soon as one is available, for whether the retained
+  Rosetta subset still runs this host.
+
+Gate: a dated revision of the Rosetta horizon decision, backed by those tests.
 
 ## Risks
 
 | Id | Risk | Mitigation |
 | --- | --- | --- |
-| R-1 | Rosetta stops serving this process after macOS 27. | M9 decides early; the HLE layers are written so that they do not depend on x86-64 hosting. |
+| R-1 | Rosetta stops serving this process after macOS 27. | Accepted by the [Rosetta horizon decision](ROSETTA_HORIZON_DECISION.md): the project is a research prototype. macOS 28 betas are tested early; the HLE layers are written so that they do not depend on Rosetta. |
 | R-2 | `fs` cannot be emulated; the T-001 rewrite misses or corrupts code. | Decoder-based rewrite over known function ranges, counters, and refusal on unexplained prefixes. |
 | R-3 | No x86-64 Vulkan driver works acceptably in a Rosetta process. | The M6 probe comes before any graphics work; MoltenVK as fallback; an own Vulkan-to-Metal path as last resort. |
 | R-4 | The renderer needs Vulkan features Metal cannot provide. | Q-7 is measured before investing in the renderer path. |

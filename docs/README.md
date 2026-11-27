@@ -22,6 +22,7 @@ as the code. It began as a separate repository and was merged, with its history,
 | --- | --- |
 | [The Linux build is the baseline](LINUX_BUILD_BASELINE_DECISION.md) | Accepted, 26 November 2026. |
 | [Thread-local storage under Rosetta](TLS_UNDER_ROSETTA_DECISION.md) | Proposed: rewrite `fs` prefixes to `gs` in private mappings and swap GS at the boundary. Accepted at the M2 gate. |
+| [Stay on Rosetta for now](ROSETTA_HORIZON_DECISION.md) | Accepted, 27 November 2026: a research prototype on Rosetta; no arm64 translator work; Rosetta-specific code isolated. |
 | [Steam bridge design](STEAM_BRIDGE_DESIGN.md) | Proposed: keep the game's own Linux `libsteam_api.so` and bridge it to the macOS client library, so only Valve's code handles identity and licences. Accepted when probes H-1 and H-2 pass. |
 
 ## Research

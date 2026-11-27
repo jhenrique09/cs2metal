@@ -140,9 +140,11 @@ does not share their data layouts.
 ## Rosetta horizon
 
 The host runs only as long as Rosetta does. Apple states that macOS 27 is the last
-general-purpose Rosetta release. Milestone M9 decides, before fall 2027, between an
-own x86-64 to arm64 translation (TLS decision option 3) and staying within whatever
-subset Apple keeps.
+general-purpose Rosetta release. By the [Rosetta horizon decision](ROSETTA_HORIZON_DECISION.md),
+the project accepts that limit as a research prototype. Rosetta-specific mechanisms
+(the code transforms and the GS bridge) stay behind one module boundary of the
+loader, every other layer is written so that it does not depend on Rosetta, and the
+private facts the bridge relies on are discovered at run time, never hard-coded.
 
 ## Crate map
 
