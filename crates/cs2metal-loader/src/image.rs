@@ -85,6 +85,8 @@ pub struct Image {
     exports: HashMap<String, Vec<usize>>,
     /// The module's own TLS slot, if it has a TLS segment in a namespace.
     pub(crate) tls_slot: Option<TlsSlot>,
+    /// The virtual address of the program header table in memory.
+    phdr: Option<u64>,
     fs_report: Option<FsReport>,
     initialized: bool,
     finalized: bool,
@@ -191,6 +193,22 @@ impl Image {
                 exports.entry(s.name.clone()).or_default().push(i);
             }
         }
+        // The program header table: PT_PHDR, or found through the segment that maps
+        // the file's first bytes, as the kernel finds it for AT_PHDR.
+        let phoff = data
+            .get(32..40)
+            .map_or(0, |b| u64::from_le_bytes(b.try_into().unwrap_or([0; 8])));
+        let phdr = elf
+            .segments
+            .iter()
+            .find(|s| s.kind == cs2metal_elf::consts::PT_PHDR)
+            .map(|s| s.vaddr)
+            .or_else(|| {
+                loads
+                    .iter()
+                    .find(|s| s.offset == 0)
+                    .map(|s| s.vaddr + phoff)
+            });
         let mut image = Self {
             region,
             bias,
@@ -198,6 +216,7 @@ impl Image {
             elf,
             exports,
             tls_slot: None,
+            phdr,
             fs_report: None,
             initialized: false,
             finalized: false,
@@ -230,6 +249,20 @@ impl Image {
         Ok(report)
     }
 
+    /// Maps an object as the kernel maps a program it starts: segments, T-001 if
+    /// asked, and segment protections, but no relocation and no RELRO, which a
+    /// dynamic loader does for itself.
+    pub fn map_program(path: &Path, fs: FsRewrite) -> Result<Self> {
+        let image = Self::map(path, fs)?;
+        image.protect_segments(false)?;
+        Ok(image)
+    }
+
+    /// The address in this process of the program header table, for `AT_PHDR`.
+    pub fn program_headers(&self) -> Option<u64> {
+        self.phdr.map(|v| self.address(v))
+    }
+
     /// What T-001 did to this module, if it ran.
     pub fn fs_report(&self) -> Option<FsReport> {
         self.fs_report
@@ -245,6 +278,12 @@ impl Image {
 
     /// Sets the final segment protections and makes RELRO read-only.
     pub(crate) fn protect(&self) -> Result<()> {
+        self.protect_segments(true)
+    }
+
+    /// Sets each segment's protection; RELRO too if asked. A program the kernel
+    /// starts gets no RELRO: its dynamic loader relocates first, then protects.
+    fn protect_segments(&self, relro: bool) -> Result<()> {
         let page = page_size();
         for s in Self::loads(&self.elf) {
             let start = round_down(s.vaddr, page);
@@ -252,7 +291,13 @@ impl Image {
             self.region
                 .protect(start - self.lo, end - start, protection(s.flags))?;
         }
-        if let Some(relro) = self.elf.segments.iter().find(|s| s.kind == PT_GNU_RELRO) {
+        let relro_segment = self
+            .elf
+            .segments
+            .iter()
+            .find(|s| s.kind == PT_GNU_RELRO)
+            .filter(|_| relro);
+        if let Some(relro) = relro_segment {
             // glibc rounds the end of RELRO down: the page holding its tail may
             // also hold writable data.
             let start = round_down(relro.vaddr, page);
