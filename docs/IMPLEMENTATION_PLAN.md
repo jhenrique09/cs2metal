@@ -142,8 +142,11 @@ the T-001 counters match an independent count of `fs` prefixes in their code.
 ### M3: the libc route
 
 - [x] Bake-off and choice (roadmap step C3, Gate 1): route C, recorded above under M2.
-- [ ] The slot-patched glibc 2.31 built from Debian's `2.31-13+deb11u14` source in
-  the fixture pipeline, with `TLS_INIT_TP` patched too, checksums tracked.
+- [x] The slot-patched glibc 2.31 built from Debian's `2.31-13+deb11u14` source in
+  the fixture pipeline, with `TLS_INIT_TP` patched too, checksums tracked. Done on
+  27 November 2026: `guest/glibc` and `tools/guest-glibc.sh`; 974 of 977 system
+  call sites through the slot, only the signal-return trampolines left, and a
+  rebuild byte-identical to the tracked checksums.
 - [ ] `cs2metal-linux`: the host starts the rebuilt ld.so as a kernel would (stack,
   auxiliary vector, control block) and answers its system calls through the slot.
 - [ ] The system calls the fixtures use, with T-001 at executable `mmap`, until

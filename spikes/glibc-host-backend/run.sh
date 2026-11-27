@@ -7,12 +7,13 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")" && pwd)"
+root="$(git -C "$here" rev-parse --show-toplevel)"
 host="${CS2METAL_BUILD_HOST:?set CS2METAL_BUILD_HOST to an x86-64 Linux ssh destination}"
 work="cs2metal-glibc"
 sha="9246fe44f68feeec8c666bb87973d590ce0137cca145df014c72ec95be9ffd17"
 
 ssh -o BatchMode=yes "$host" "mkdir -p $work"
-rsync -a "$here/" "$host:$work/spike/"
+rsync -a "$root/guest/glibc/patch_glibc.py" "$root/guest/glibc/Dockerfile" "$host:$work/spike/"
 ssh -o BatchMode=yes "$host" bash -s <<REMOTE
 set -euo pipefail
 cd $work

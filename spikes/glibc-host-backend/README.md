@@ -11,13 +11,17 @@ of glibc has to change for that, and whether anything still issues a raw
 CS2METAL_BUILD_HOST=<ssh destination> spikes/glibc-host-backend/run.sh
 ```
 
-- `patch_glibc.py` rewrites the seven `INTERNAL_SYSCALL` assembly templates and the
+This spike measures the upstream source; the guest's glibc is built from Debian's
+source by `tools/guest-glibc.sh` with the same patch, in `guest/glibc/`.
+
+- `guest/glibc/patch_glibc.py` rewrites the seven `INTERNAL_SYSCALL` assembly templates and the
   `DO_CALL` macro in `sysdeps/unix/sysv/linux/x86_64/sysdep.h`, and every
   hand-written `syscall` in that directory's `.S` files. Each becomes
   `lea -128(%rsp), %rsp; call *%fs:0x20; lea 128(%rsp), %rsp`. The `lea` keeps
   the red zone intact, and `0x20` is `tcbhead_t.sysinfo`, which is unused on
   x86-64; i386 calls the kernel through the same field.
-- `Dockerfile` is the pinned Steam Runtime 3 SDK plus `gawk` and `texinfo`.
+- `guest/glibc/Dockerfile` is the pinned Steam Runtime 3 SDK plus `gawk` and
+  `texinfo`.
 - `run.sh` downloads the source on the build host and checks its SHA-256, then
   patches, configures, builds without network, and counts the calls through the
   slot and the raw `syscall` instructions left, by function.
