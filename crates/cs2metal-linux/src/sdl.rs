@@ -500,6 +500,16 @@ fn paused(stream: u64) -> bool {
     paused(device(stream))
 }
 
+/// Counts the times a playing stream's queue was found empty, which the device
+/// plays as silence, and names them in the trace.
+fn ran_dry() {
+    static TIMES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = TIMES.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    if tracing() && n.is_power_of_two() {
+        eprintln!("cs2metal: SDL audio queue found empty ({n} times)");
+    }
+}
+
 /// The next stream callback due, as (callback, userdata, stream, amount), among
 /// the streams whose devices are playing.
 fn due(pumps: &[Pump]) -> Option<[u64; 5]> {
@@ -519,6 +529,9 @@ fn due(pumps: &[Pump]) -> Option<[u64; 5]> {
         let amount = if p.playback {
             let target = p.rate * AHEAD_MS / 1000;
             let have = u64::try_from(queued(p.stream)).unwrap_or(0);
+            if have == 0 {
+                ran_dry();
+            }
             target.saturating_sub(have) / p.frame * p.frame
         } else {
             u64::try_from(available(p.stream)).unwrap_or(0)
