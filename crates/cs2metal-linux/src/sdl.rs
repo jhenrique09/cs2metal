@@ -511,6 +511,8 @@ changed!(changed_mouse_focus, "SDL_GetMouseFocus");
 changed!(changed_grabbed_window, "SDL_GetGrabbedWindow");
 changed!(changed_window_flags, "SDL_GetWindowFlags");
 
+named!(named_init, "SDL_Init");
+named!(named_init_subsystem, "SDL_InitSubSystem");
 named!(named_relative_mouse, "SDL_SetWindowRelativeMouseMode");
 named!(named_mouse_grab, "SDL_SetWindowMouseGrab");
 named!(named_start_text, "SDL_StartTextInput");
@@ -1329,6 +1331,8 @@ fn wrapper(name: &[u8]) -> Option<u64> {
         b"SDL_GetMouseFocus" if tracing() => changed_mouse_focus as *const (),
         b"SDL_GetGrabbedWindow" if tracing() => changed_grabbed_window as *const (),
         b"SDL_GetWindowFlags" if tracing() => changed_window_flags as *const (),
+        b"SDL_Init" if tracing() => named_init as *const (),
+        b"SDL_InitSubSystem" if tracing() => named_init_subsystem as *const (),
         b"SDL_SetWindowRelativeMouseMode" if tracing() => named_relative_mouse as *const (),
         b"SDL_SetWindowMouseGrab" if tracing() => named_mouse_grab as *const (),
         b"SDL_StartTextInput" if tracing() => named_start_text as *const (),
