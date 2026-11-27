@@ -54,6 +54,15 @@ comes with tests in the same commit.
 Validation never launches the game, contacts Steam, or downloads game files. Steps
 that need the game are owner actions recorded in `docs/IMPLEMENTATION_PLAN.md`.
 
+One exception, authorized by the owner on 27 November 2026 for roadmap steps C4 and
+C5: an agent may boot the game itself, only through `cs2metal run` (which verifies
+the installation against its baseline first), only with `-dedicated -insecure`, and
+never signed in to Steam or with any credential. Each boot runs under a timeout, its
+log goes to the ignored `runs/` directory, and tracked files cite only what the
+policy allows from it (counts, system call numbers, public interface names). The
+exception ends when the engine reaches its Steam initialization and its first SDL
+or Vulkan call; client boots, a window, and anything signed in stay owner actions.
+
 ## Commits
 
 - **Every change gets its own commit.** Each feature implemented, each fix, each
