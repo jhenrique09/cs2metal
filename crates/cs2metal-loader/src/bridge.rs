@@ -8,7 +8,11 @@
 //! - [`call_guest`] runs a guest function from host code: GS to the guest's block,
 //!   the call, GS back to the host.
 //! - A *host thunk* runs a host function from guest code: GS to the host, the call,
-//!   GS back to the guest. Its state lives on a small per-thread stack, not on the
+//!   GS back to the guest.
+//! - A *guest thunk* is the reverse, for guest callbacks that host code calls: GS
+//!   to the guest's block, the call, GS back to the host. Host code finds the
+//!   thread's host block through a pthread TSD slot, since the guest's block is
+//!   not at hand in the host domain. Its state lives on a small per-thread stack, not on the
 //!   machine stack, so that arguments passed on the stack reach the host function
 //!   where the ABI puts them.
 //! - The *system call entry* is what the guest's rebuilt glibc calls through
@@ -106,6 +110,47 @@ extern "C" fn fixup(value: u64) -> u64 {
     // SAFETY: only set_return_fixup stores here, from a ReturnFixup.
     let f: ReturnFixup = unsafe { std::mem::transmute(f as usize) };
     f(value)
+}
+
+/// The byte offset, in every thread's host TSD array, of the slot that holds the
+/// thread's host block: a pthread key's slot, made with the first host block. The
+/// guest thunk reads it with GS at the host's TSD. Zero until then, and zero in a
+/// thread without a host block.
+#[cfg_attr(not(target_arch = "x86_64"), allow(dead_code))]
+static BLOCK_SLOT: AtomicU64 = AtomicU64::new(0);
+
+/// The pthread key whose TSD slot [`BLOCK_SLOT`] is, made once.
+fn block_key() -> Option<libc::pthread_key_t> {
+    static KEY: std::sync::OnceLock<Option<libc::pthread_key_t>> = std::sync::OnceLock::new();
+    *KEY.get_or_init(|| {
+        let mut key: libc::pthread_key_t = 0;
+        // SAFETY: pthread_key_create writes a new key; no destructor.
+        (unsafe { libc::pthread_key_create(&mut key, None) } == 0).then_some(key)
+    })
+}
+
+/// Records `block` as the calling thread's host block in its TSD slot, checking
+/// that the slot is where the guest thunk reads it.
+fn register_block(block: u64) -> Result<()> {
+    let key = block_key().ok_or(Error::ForeignHost)?;
+    // SAFETY: setting this thread's value of a key this module made.
+    if unsafe { libc::pthread_setspecific(key, block as *const libc::c_void) } != 0 {
+        return Err(Error::ForeignHost);
+    }
+    // On macOS a key's value lives in TSD slot `key`; the thunk depends on that.
+    if imp::tsd_word(key) != block {
+        return Err(Error::ForeignHost);
+    }
+    BLOCK_SLOT.store(8 * key, Ordering::Release);
+    Ok(())
+}
+
+/// Reached when host code calls a guest callback on a thread that has no host
+/// block: there is no guest thread state to run it with.
+#[cfg_attr(not(target_arch = "x86_64"), allow(dead_code))]
+extern "C" fn foreign_callback(target: u64) -> ! {
+    eprintln!("cs2metal: a host thread without guest state called the guest function {target:#x}");
+    std::process::abort()
 }
 
 /// Installs the handler every guest system call reaches.
@@ -238,6 +283,65 @@ mod imp {
         fixup = sym super::fixup,
     );
 
+    // The guest thunk. Entered from host code with GS at the host's TSD, the
+    // arguments in the SysV registers and on the stack, and r11 holding the guest
+    // function, set by the stub that jumped here. The thread's host block comes
+    // from its TSD slot; a thread without one (a host thread the guest never ran
+    // on) cannot enter the guest. Same frame layout as the host thunk.
+    core::arch::global_asm!(
+        ".p2align 4",
+        ".globl _cs2metal_guest_thunk",
+        "_cs2metal_guest_thunk:",
+        "mov r10, qword ptr [rip + {slot}]",
+        "mov r10, qword ptr gs:[r10]",
+        "test r10, r10",
+        "jz 9f",
+        "mov r10, qword ptr [r10 + {top}]",
+        "mov qword ptr [r10 + 0], rax",
+        "pop rax",
+        "mov qword ptr [r10 + 8], rax",
+        "mov qword ptr [r10 + 16], rbx",
+        "mov qword ptr [r10 + 24], r12",
+        "mov qword ptr [r10 + 32], r11",
+        "mov qword ptr [r10 + 40], rcx",
+        "mov qword ptr [r10 + 48], rdi",
+        "mov r12, r10",
+        "mov rbx, qword ptr [rip + {slot}]",
+        "mov rbx, qword ptr gs:[rbx]",
+        "lea r10, [r12 + {frame}]",
+        "mov qword ptr [rbx + {top}], r10",
+        "mov rdi, qword ptr [rbx + {guest}]",
+        "mov eax, 0x3000003",
+        "syscall",
+        "mov rdi, qword ptr [r12 + 48]",
+        "mov rcx, qword ptr [r12 + 40]",
+        "mov rax, qword ptr [r12 + 0]",
+        "call qword ptr [r12 + 32]",
+        "mov qword ptr [r12 + 40], rax",
+        "mov qword ptr [r12 + 48], rdx",
+        "mov rdi, qword ptr [rbx + {tsd}]",
+        "mov eax, 0x3000003",
+        "syscall",
+        "mov rax, qword ptr [r12 + 40]",
+        "mov rdx, qword ptr [r12 + 48]",
+        "mov qword ptr [rbx + {top}], r12",
+        "mov rcx, qword ptr [r12 + 8]",
+        "mov rbx, qword ptr [r12 + 16]",
+        "mov r12, qword ptr [r12 + 24]",
+        "push rcx",
+        "ret",
+        "9:",
+        "mov rdi, r11",
+        "call {foreign}",
+        "ud2",
+        slot = sym super::BLOCK_SLOT,
+        top = const host::BRIDGE_TOP,
+        tsd = const host::TSD,
+        guest = const host::GUEST_TP,
+        frame = const host::BRIDGE_FRAME_SIZE,
+        foreign = sym super::foreign_callback,
+    );
+
     // The system call entry. Entered by `call *%gs:0x20` from the rebuilt glibc,
     // below the red zone, with rax the Linux number and rdi, rsi, rdx, r10, r8, r9
     // the arguments. Like `syscall`, it changes only rax (the result), rcx, and r11;
@@ -328,6 +432,7 @@ mod imp {
     unsafe extern "C" {
         fn cs2metal_host_thunk();
         fn cs2metal_fixed_thunk();
+        fn cs2metal_guest_thunk();
         fn cs2metal_syscall_entry();
         pub(crate) fn cs2metal_run_guest_thread(tp: u64, rip: u64, rsp: u64, block: u64) -> u64;
         pub(crate) fn cs2metal_leave_guest_thread(block: u64, status: u64) -> !;
@@ -343,6 +448,14 @@ mod imp {
 
     pub(crate) fn fixed_thunk_entry() -> u64 {
         cs2metal_fixed_thunk as *const () as u64
+    }
+
+    pub(crate) fn guest_thunk_entry() -> u64 {
+        cs2metal_guest_thunk as *const () as u64
+    }
+
+    pub(crate) fn tsd_word(index: u64) -> u64 {
+        gs_word(index)
     }
 
     fn gs_word(index: u64) -> u64 {
@@ -495,6 +608,12 @@ mod imp {
     pub(crate) fn fixed_thunk_entry() -> u64 {
         0
     }
+    pub(crate) fn guest_thunk_entry() -> u64 {
+        0
+    }
+    pub(crate) fn tsd_word(_index: u64) -> u64 {
+        0
+    }
     pub(crate) fn host_tsd_base() -> Option<u64> {
         None
     }
@@ -544,6 +663,7 @@ impl HostBlock {
         region.write_u64(host::TSD, tsd)?;
         region.write_u64(host::GUEST_TP, guest_tp)?;
         region.write_u64(host::BRIDGE_TOP, base + host::BRIDGE_FRAMES)?;
+        register_block(base)?;
         Ok(Self { region })
     }
 
@@ -744,5 +864,13 @@ impl Bridge {
     /// switch to the host domain: one stub per target, made on first request.
     pub fn host(&mut self, target: u64) -> Result<u64> {
         self.stub(target, imp::thunk_entry())
+    }
+
+    /// The address host code calls to reach the guest function at `target`, a
+    /// callback the guest handed to a host library, with a switch to the guest
+    /// domain: one stub per target, made on first request. It must be called on a
+    /// thread that has a host block.
+    pub fn guest(&mut self, target: u64) -> Result<u64> {
+        self.stub(target, imp::guest_thunk_entry())
     }
 }
