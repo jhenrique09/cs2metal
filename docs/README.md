@@ -34,6 +34,7 @@ as the code. It began as a separate repository and was merged, with its history,
 | [Code scan of the Steam Linux Runtime, 27 November 2026](CODE_SCAN_RUNTIME_2026-11-27.md) | `cs2metal tls scan` matches `objdump` exactly on five runtime libraries; no `fs` access lies outside the unwind tables, even in glibc's assembly. |
 | [Steam client probe, 27 November 2026](STEAM_CLIENT_PROBE_2026-11-27.md) | The macOS client library has an x86-64 slice and exports the expected boundary: hypothesis H-1 holds. |
 | [Vulkan requirements research, 27 November 2026](VULKAN_REQUIREMENTS_RESEARCH_2026-11-27.md) | The 71 extensions the CS2 renderer names, against MoltenVK and KosmicKrisp; what the game configuration requires; what is still unmeasured. |
+| [The CS2 Linux build, inventoried and scanned, 27 November 2026](LINUX_BUILD_INVENTORY_2026-11-27.md) | Q-1 to Q-5 answered: a PIE launcher, 710 glibc symbols, dynamic TLS only. 17,733 of 17,734 `fs` accesses inside FDEs are the canary, but FDEs cover 48.8% of the code and `libtier0.so` has 10 real thread-pointer reads outside them. |
 | [Route and effort review, 27 November 2026](ROUTE_AND_EFFORT_REVIEW_2026-11-27.md) | Owner-requested assessment of the chosen route, its technical gates, alternative libc strategies, Native VIctory reuse, and realistic effort. |
 
 ## Backlog

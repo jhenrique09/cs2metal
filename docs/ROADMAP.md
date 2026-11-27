@@ -53,7 +53,7 @@ before most of the code is written. Do those first.
 The two gates come from the
 [route and effort review](ROUTE_AND_EFFORT_REVIEW_2026-11-27.md):
 
-- **Gate 0** passes when B2, B3, B5, D1 (H-2), and F1 have run on the real build and
+- **Gate 0** passes when B2, B3, B5, B6, D1 (H-2), and F1 have run on the real build and
   none of them invalidates the design. Until then nothing beyond fixtures and the
   loader core is built.
 - **Gate 1** passes when the libc route of C3 is chosen from measurements on the
@@ -149,6 +149,10 @@ cd ~/cs2metal-kit/steamcmd
   `+app_update`, or start the game's installation once from any Steam client.
 - To update the game later, run the same command again, then redo B2 and B3.
 
+State: done on 27 November 2026. The `linux` override works from macOS: build
+26879581, 71.1 GB, `cs2` is an x86-64 ELF
+([inventory](LINUX_BUILD_INVENTORY_2026-11-27.md)).
+
 Done when:
 
 ```bash
@@ -241,6 +245,11 @@ bundled and the missing libraries, the list of glibc symbols to implement, alloc
 interposition, and the TLS models in use. Record the answers, as counts and public
 names only, in a new dated research document, and resize phase C to match.
 
+State: run on 27 November 2026; Q-1 to Q-5 are answered in the
+[inventory of the Linux build](LINUX_BUILD_INVENTORY_2026-11-27.md). `cs2` is a PIE,
+the build imports 710 glibc symbols, no bundled module replaces the C allocator, and
+every shared object uses dynamic TLS through `__tls_get_addr`.
+
 ### B3. Integrity baseline (owner, S; exists today)
 
 ```bash
@@ -260,8 +269,9 @@ Run `record` only right after steamcmd's `validate`, and again after every updat
 Every later step that opens the installation verifies first. `--quick` hashes again
 only the files whose size or modification time changed.
 
-State: built on 27 November 2026. Hashing runs at about 430 MB/s per file on the
-development machine, on all cores at once.
+State: built on 27 November 2026, and recorded the same day for build 26879581:
+3,131 files, 71.1 GB, in 11 seconds on all cores; the first quick verify found no
+difference.
 
 ### B5. Code scan: `fs` accesses, unwind coverage, TLS models (exists today)
 
@@ -277,8 +287,10 @@ module:
 - every `fs`-prefixed instruction, classified as a thread-pointer load (`fs:0`), a
   stack-guard read (`fs:0x28`), a pointer-guard read (`fs:0x30`), a local-exec access
   (`fs` with a constant offset), or an initial-exec access (`fs` with a register);
-- how many executable bytes the unwind tables cover, and the `fs` prefixes found in
-  the bytes they do not cover, which T-001 could not rewrite safely;
+- how many code bytes the unwind tables cover, and the `fs` prefixes, by kind, found
+  in the code they do not cover, which T-001 could not rewrite safely. Code is the
+  executable sections when the module has a section table, because some linkers map
+  read-only data in the executable segment;
 - decoder failures inside covered ranges;
 - the TLS models in use, from the dynamic relocations (global- and local-dynamic,
   TLS descriptors, initial-exec in shared objects) and from the code (local-exec and
@@ -293,6 +305,25 @@ State: built on 27 November 2026 and validated against `objdump` on public Steam
 Linux Runtime libraries: the `fs` counts match exactly, and glibc's hand-written
 assembly has no `fs` access outside the unwind ranges
 ([code scan of the runtime](CODE_SCAN_RUNTIME_2026-11-27.md)).
+
+Run on the game on 27 November 2026
+([inventory and scan](LINUX_BUILD_INVENTORY_2026-11-27.md)). Inside FDE ranges all
+17,734 `fs` accesses are rewritable, and 17,733 of them read the stack guard. The
+FDEs cover only 48.8% of the code, though, and `libtier0.so` has 10 real
+thread-pointer reads outside them. The scan does not pass yet; B6 follows.
+
+### B6. Code discovery beyond the unwind tables (to build, M)
+
+The [TLS decision](TLS_UNDER_ROSETTA_DECISION.md) lets T-001 decode outside FDE
+ranges only where an independent rule proves the bytes are code. Add that rule to
+`cs2metal tls scan`: recursive descent from the FDE ranges, the exported functions,
+the entry point, and the initializer arrays, following direct calls and jumps inside
+the executable sections. Report per module the code it reaches beyond the FDEs and
+the `fs` accesses found there.
+
+Done when the rule reaches the 10 thread-pointer reads in `libtier0.so`, reaches
+none of the 523 data decodes the linear sweep finds, and `objdump` agrees with every
+count. If it cannot separate the two, B5's stop condition applies.
 
 ### B4. Static Vulkan scan (to build, S)
 
@@ -454,7 +485,7 @@ research prototype, by the [Rosetta horizon decision](ROSETTA_HORIZON_DECISION.m
   libraries before the game arrives; C1 and C2 need no game file.
 - **Probes, as soon as A2 and A6 are done:** D1 and F1. They are small, they are
   independent of the loader, and each can invalidate a design.
-- **Critical path:** B2 → B5 → Gate 0 → C2 → C3 (Gate 1) → C4 → C5 → (D2) → E1 →
+- **Critical path:** B2 → B5 → B6 → Gate 0 → C2 → C3 (Gate 1) → C4 → C5 → (D2) → E1 →
   F2 → F3.
 
 ## What can stop this roadmap
@@ -462,7 +493,8 @@ research prototype, by the [Rosetta horizon decision](ROSETTA_HORIZON_DECISION.m
 | Finding | Step that reveals it | Then |
 | --- | --- | --- |
 | steamcmd will not deliver the Linux depot to a Mac | A4 | Steam console `download_depot`, depot by depot |
-| `cs2` is a fixed-address executable inside the first 4 GB | B2 | Link the host with a small `__PAGEZERO`; known technique |
+| `cs2` is a fixed-address executable inside the first 4 GB | B2 | Ruled out on 27 November 2026: `cs2` is a PIE |
+| Code outside the unwind tables cannot be told from data | B6 | Stop and reassess T-001 |
 | Steam on macOS refuses app 730 | D1 | No Steam for the guest; boot as far as the engine goes without it |
 | No x86-64 Vulkan driver works under Rosetta | F1 | Stop and reassess. An arm64 rendering helper is a new project with its own decision record |
 | The `fs` rewrite cannot be made safe on real modules | C2, C4 | The own-translator route |

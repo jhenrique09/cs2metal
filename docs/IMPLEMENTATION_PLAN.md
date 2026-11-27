@@ -63,14 +63,19 @@ explicitly before every commit.
   (SHA-256 test vectors, links recorded without being followed, nothing modified on
   disk, every kind of difference in full and quick mode, `steamapps/` excluded) and a
   command-line test (refusal to overwrite, exit status 4 on a difference).
-- [ ] Run `cs2metal inventory <game_dir>` and answer open questions Q-1 to Q-5 of the
+- [x] **Owner action** done on 27 November 2026: steamcmd installed build 26879581
+  of the Linux build on the Mac, 71.1 GB, and `baseline record` covered its 3,131
+  files.
+- [x] Run `cs2metal inventory <game_dir>` and answer open questions Q-1 to Q-5 of the
   [feasibility research](FEASIBILITY_RESEARCH_2026-11-26.md) in a new dated research
-  document that records counts and public ABI names only.
+  document that records counts and public ABI names only. Done on 27 November 2026:
+  [inventory of the Linux build](LINUX_BUILD_INVENTORY_2026-11-27.md).
 - [x] Download the Steam Linux Runtime 3.0 ("sniper") from Valve's public repository
   and extract its C++ runtime (roadmap step A5). Done on 27 November 2026: runtime
   3.0.20261021, checksum verified, both libraries parsed by `cs2metal inspect`.
-- [ ] Check that libstdc++ and libgcc_s 10.3 satisfy the build's symbol versions,
-  once the Linux build is inventoried.
+- [x] Check that libstdc++ and libgcc_s 10.3 satisfy the build's symbol versions.
+  Done on 27 November 2026: the build needs at most GLIBCXX_3.4.20, CXXABI_1.3.5, and
+  GCC_4.0.0; the runtime provides GLIBCXX_3.4.28, CXXABI_1.3.12, and GCC_7.0.0.
 - [ ] **Owner action:** install the Vulkan SDK for macOS and record `vulkaninfo` for
   each driver (roadmap step A6).
 
@@ -79,7 +84,13 @@ explicitly before every commit.
   models per module. Built on 27 November 2026 on `.eh_frame` range parsing in
   `cs2metal-elf` and the iced-x86 decoder: 6 library tests on hand-assembled code, a
   command-line test, and agreement with `objdump` on five public runtime libraries.
-- [ ] Run it on the real Linux build.
+- [x] Run it on the real Linux build. Done on 27 November 2026, after two fixes
+  found by checking against `objdump` (code bounded by executable sections; string
+  instructions no longer counted as `fs:0`): every `fs` access inside FDE ranges is
+  rewritable, FDEs cover 48.8% of the code, and `libtier0.so` has 10 real
+  thread-pointer reads outside them.
+- [ ] Code discovery beyond the unwind tables (roadmap step B6): recursive descent
+  that reaches the 10 `libtier0.so` sites and none of the 523 data decodes.
 
 Gate (Gate 0 of the [roadmap](ROADMAP.md), with probes H-2 and F1): the inventory
 and the code scan answer Q-1 to Q-5 and measure T-001's coverage on the real modules,
@@ -178,4 +189,4 @@ Gate: a dated revision of the Rosetta horizon decision, backed by those tests.
 | R-6 | Valve treats the host as a modification and acts on the account. | Accepted by the owner. Offline by default, secondary account, no VAC study. |
 | R-7 | Weekly game updates break the host. | No per-build offsets anywhere; the inventory reruns after every update. |
 | R-8 | The GS swap makes host calls too slow. | Neutral functions on hot paths; measure call frequency per import in M4. |
-| R-9 | `cs2` is a fixed-address executable inside `__PAGEZERO`. | Link the host with a small page-zero (Q-1 answers whether this is needed). |
+| R-9 | `cs2` is a fixed-address executable inside `__PAGEZERO`. | Retired on 27 November 2026: `cs2` is a PIE (Q-1). |

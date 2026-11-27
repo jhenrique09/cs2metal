@@ -47,8 +47,9 @@ the thread-pointer swap and the translation of data layouts that differ.
   host share the address space.
 - Guest modules are mapped from read-only file descriptors into private mappings.
   Shared objects are position-independent and go wherever the loader puts them.
-- If `cs2` turns out to be a fixed-address `ET_EXEC` below 4 GB (open question Q-1),
-  the host binary must be linked with a small `__PAGEZERO` so that range is free.
+- `cs2` is a position-independent executable (Q-1, answered on 27 November 2026 by
+  the [inventory](LINUX_BUILD_INVENTORY_2026-11-27.md)), so it too goes wherever the
+  loader puts it, and the host keeps the default `__PAGEZERO`.
 
 ## Integrity guard
 
