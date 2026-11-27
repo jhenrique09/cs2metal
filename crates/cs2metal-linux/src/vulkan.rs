@@ -643,8 +643,70 @@ extern "C" fn acquire_next_image(
     result
 }
 
+/// How often the trace reports the pacing of presents.
+const PACING_PERIOD: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// The intervals between presents since the last report, in microseconds.
+struct Pacing {
+    last: Option<std::time::Instant>,
+    since: Option<std::time::Instant>,
+    intervals: Vec<u32>,
+}
+
+static PACING: Mutex<Pacing> = Mutex::new(Pacing {
+    last: None,
+    since: None,
+    intervals: Vec::new(),
+});
+
+/// The report's line for a period's intervals between presents: how many, the
+/// median, the 99th percentile, the longest, and how many took more than twice
+/// the median, which is what a stutter is.
+fn pacing_line(intervals: &mut [u32]) -> Option<String> {
+    if intervals.is_empty() {
+        return None;
+    }
+    intervals.sort_unstable();
+    let at = |per_mille: usize| intervals[(intervals.len() - 1) * per_mille / 1000];
+    let median = at(500);
+    let slow = intervals.iter().filter(|&&i| i > 2 * median).count();
+    let ms = |micros: u32| f64::from(micros) / 1000.0;
+    Some(format!(
+        "cs2metal: presents: {} in the period, median {:.1} ms, 99th percentile {:.1} ms, \
+         longest {:.1} ms, {slow} over twice the median",
+        intervals.len(),
+        ms(median),
+        ms(at(990)),
+        ms(at(1000)),
+    ))
+}
+
+/// Records a present for the pacing reports.
+fn note_present() {
+    let now = std::time::Instant::now();
+    let Ok(mut pacing) = PACING.lock() else {
+        return;
+    };
+    if let Some(last) = pacing.last {
+        let micros = now.duration_since(last).as_micros();
+        pacing
+            .intervals
+            .push(u32::try_from(micros).unwrap_or(u32::MAX));
+    }
+    pacing.last = Some(now);
+    let since = *pacing.since.get_or_insert(now);
+    if now.duration_since(since) >= PACING_PERIOD {
+        pacing.since = Some(now);
+        let mut intervals = std::mem::take(&mut pacing.intervals);
+        if let Some(line) = pacing_line(&mut intervals) {
+            eprintln!("{line}");
+        }
+    }
+}
+
 /// `vkQueuePresentKHR`, traced.
 extern "C" fn queue_present(queue: u64, info: u64) -> i32 {
+    note_present();
     let device = DEVICE.lock().map_or(0, |d| *d);
     let f = device_function(device, c"vkQueuePresentKHR");
     if f == 0 {
@@ -828,6 +890,19 @@ pub(crate) fn bind(table: u64, names: u64, count: u64) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_pacing_report_names_the_stutters() {
+        assert!(pacing_line(&mut []).is_none());
+        // 98 presents at 10 ms, one at 25 ms, one at 300 ms.
+        let mut intervals = vec![10_000u32; 98];
+        intervals.extend([300_000, 25_000]);
+        assert_eq!(
+            pacing_line(&mut intervals).expect("line"),
+            "cs2metal: presents: 100 in the period, median 10.0 ms, 99th percentile 25.0 ms, \
+             longest 300.0 ms, 2 over twice the median"
+        );
+    }
 
     #[test]
     fn null_descriptor_sets_split_a_binding_into_runs() {

@@ -44,7 +44,9 @@ so the loader uses its own allocator for its objects. The others pass them throu
 unchanged; MoltenVK does not call them.
 
 `CS2METAL_VULKAN_TRACE=1` logs the instance and device extensions the renderer
-requests, the measurement Q-7 asks for.
+requests, the measurement Q-7 asks for. It also counts the swapchain's calls, and
+every ten seconds reports the pacing of presents: how many, the median interval,
+the 99th percentile, the longest, and how many took more than twice the median.
 `CS2METAL_VULKAN_HIDE`, a comma-separated list of device extension names, removes
 them from what `vkEnumerateDeviceExtensionProperties` reports to the game, to test
 whether the renderer works better without one, such as `VK_KHR_present_wait`.
