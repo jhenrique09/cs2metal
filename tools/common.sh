@@ -2,7 +2,8 @@
 #
 # Everything outside the checkout lives under one directory, ~/cs2-metal:
 #
-#   bin/    the host program, the guest's C library and shims, and these scripts
+#   bin/    the host program (inside cs2metal.app), the guest's C library and
+#           shims, and these scripts
 #   data/   steamcmd, the game, what the game writes, the C++ runtime, the baseline
 #   logs/   one log per session
 #
@@ -13,7 +14,10 @@ bin_dir="$CS2METAL_HOME/bin"
 data_dir="$CS2METAL_HOME/data"
 logs_dir="$CS2METAL_HOME/logs"
 
-host_bin="$bin_dir/cs2metal"
+# The host program lives in an application bundle, whose Info.plist is what
+# tells macOS that it is a game (host-bundle.sh).
+host_app="$bin_dir/cs2metal.app"
+host_bin="$host_app/Contents/MacOS/cs2metal"
 guest_dir="$bin_dir/guest"
 game_dir="$data_dir/cs2-linux"
 overlay_dir="$data_dir/cs2-linux.overlay"
@@ -39,6 +43,26 @@ fail() {
 
 steam_running() { pgrep -f "Steam.AppBundle/Steam/Contents/MacOS/steam_osx" > /dev/null; }
 game_running() { pgrep -x cs2metal > /dev/null; }
+
+# Converts the game's own icon, a 512-pixel bitmap in the installation, into
+# the .icns file named, in the sizes one holds. Nothing of Valve's is shipped
+# with cs2metal: the icon is made on this Mac from the owner's copy. Fails,
+# having made nothing, where the bitmap is not there.
+make_icon() {
+    local out="$1" bitmap="$game_dir/game/csgo/resource/game-icon.bmp" set_dir size double
+    [ -f "$bitmap" ] || return 1
+    set_dir="$(mktemp -d)/icon.iconset"
+    mkdir -p "$set_dir"
+    for size in 16 32 128 256 512; do
+        sips -s format png -z "$size" "$size" "$bitmap" --out "$set_dir/icon_${size}x${size}.png" > /dev/null
+    done
+    for size in 16 128 256; do
+        double=$((size * 2))
+        cp "$set_dir/icon_${double}x${double}.png" "$set_dir/icon_${size}x${size}@2x.png"
+    done
+    iconutil -c icns "$set_dir" -o "$out"
+    rm -rf "$(dirname "$set_dir")"
+}
 
 # The newest Vulkan SDK's macOS directory, or nothing.
 vulkan_sdk() {

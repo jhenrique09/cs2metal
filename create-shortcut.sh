@@ -8,6 +8,9 @@
 #
 # The application is a small bundle whose program runs ~/cs2-metal/bin/run.sh, so
 # it shows in Finder, Launchpad, Spotlight, and the Dock under the game's name.
+# It declares itself a game that supports Game Mode, as the host's own bundle
+# does (host-bundle.sh): the game is one process from this application's start
+# to the host, each script replacing itself with the next.
 # Like run.sh, it opens Steam first if Steam is not running, and starts the game
 # online; --offline makes a second application, Counter-Strike 2 (offline), that
 # starts it with -insecure.
@@ -62,22 +65,10 @@ chmod +x "$app/Contents/MacOS/launch"
 
 # The icon: the game's own 512-pixel bitmap, in the sizes an .icns holds.
 icon=""
-bitmap="$game_dir/game/csgo/resource/game-icon.bmp"
-if [ -f "$bitmap" ]; then
-    set_dir="$(mktemp -d)/icon.iconset"
-    mkdir -p "$set_dir"
-    for size in 16 32 128 256 512; do
-        sips -s format png -z "$size" "$size" "$bitmap" --out "$set_dir/icon_${size}x${size}.png" > /dev/null
-    done
-    for size in 16 128 256; do
-        double=$((size * 2))
-        cp "$set_dir/icon_${double}x${double}.png" "$set_dir/icon_${size}x${size}@2x.png"
-    done
-    iconutil -c icns "$set_dir" -o "$app/Contents/Resources/icon.icns"
-    rm -rf "$(dirname "$set_dir")"
+if make_icon "$app/Contents/Resources/icon.icns"; then
     icon="$app/Contents/Resources/icon.icns"
 else
-    say "no icon: $bitmap is not there"
+    say "no icon: the game's icon file is not in $game_dir"
 fi
 
 identifier="local.cs2metal.$(echo "$script" | tr -cd 'a-z')"
@@ -94,6 +85,8 @@ cat > "$app/Contents/Info.plist" << PLIST
     <key>CFBundlePackageType</key><string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$(cat "$bin_dir/VERSION" 2> /dev/null || echo 0)</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.action-games</string>
+    <key>LSSupportsGameMode</key><true/>
+    <key>GCSupportsGameMode</key><true/>
     <key>NSHighResolutionCapable</key><true/>
 </dict>
 </plist>

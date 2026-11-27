@@ -122,7 +122,7 @@ is also added to Steam's library.
 
 | Path | Contents |
 | --- | --- |
-| `~/cs2-metal/bin/` | The host program `cs2metal`, the guest's C library and shims (`guest/`), and the scripts that start the game |
+| `~/cs2-metal/bin/` | The host program, inside the application bundle `cs2metal.app`, the guest's C library and shims (`guest/`), and the scripts that start the game |
 | `~/cs2-metal/data/` | steamcmd, the game (`cs2-linux/`), what the game writes (`cs2-linux.overlay/`), the C++ runtime (`sniper/`), and the integrity baseline |
 | `~/cs2-metal/logs/` | One log per session |
 
@@ -202,7 +202,7 @@ and installs nothing that does not match.
 The host program can also be run by hand:
 
 ```bash
-~/cs2-metal/bin/cs2metal run \
+~/cs2-metal/bin/cs2metal.app/Contents/MacOS/cs2metal run \
   --game-dir <game_dir> --runtime-dir <runtime_dir>/files \
   --glibc <guest_dir> --baseline <baseline.json> \
   -- -insecure

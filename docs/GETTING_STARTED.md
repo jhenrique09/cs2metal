@@ -72,7 +72,7 @@ It can be stopped and run again; it skips what is already done. In order, it:
 
 ```
 ~/cs2-metal/
-  bin/     cs2metal, the host program
+  bin/     cs2metal.app/        the host program, in an application bundle
            guest/               the guest's C library and the shims
            run.sh, run-offline.sh, create-shortcut.sh, and their helpers
   data/    steamcmd/            Valve's downloader
@@ -147,7 +147,7 @@ shaders, in the user's cache directory (`com.apple.metal`). Three habits keep th
   next start spent two minutes on a black screen compiling its Metal shaders
   again (seen on 27 November 2026; the cause is INFERRED from the order of events).
 - **Leave the host program where it is.** Do not move or copy
-  `~/cs2-metal/bin/cs2metal` and start it from another path. Its first boot from a
+  `~/cs2-metal/bin/cs2metal.app` and start it from another path. Its first boot from a
   path it never ran from sat four minutes on a black screen while Metal compiled
   every shader again (seen on 27 November 2026). Building it again at the same
   path did not do that.
@@ -191,7 +191,15 @@ because it writes its list of shortcuts when it quits; the list is copied first
 
 It builds three things on this Mac and installs them to `~/cs2-metal/bin`:
 
-1. **The host program**, with cargo, for `x86_64-apple-darwin`.
+1. **The host program**, with cargo, for `x86_64-apple-darwin`, installed inside
+   an application bundle, `~/cs2-metal/bin/cs2metal.app`. The bundle's `Info.plist`
+   is what tells macOS that the program is a game: it names a games category and
+   asks for Game Mode, which gives a full-screen game the processor and the GPU
+   ahead of background work. macOS offers Game Mode to an application that
+   declares itself this way and decides by itself whether to turn it on; a
+   program outside a bundle is never offered it. The keys are not inherited by a
+   program another one starts, which is why the host itself is the bundle's
+   program. The game's icon is converted on your Mac from the game's own file.
 2. **The guest's C library**: Debian's glibc 2.31 with the project's patch
    (`guest/glibc/README.md`), which sends every system call through one slot the
    host answers. Its six libraries have checksums in the repository, and nothing

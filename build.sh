@@ -8,7 +8,9 @@
 # Three things are built:
 #
 # 1. The host program, cs2metal: an x86-64 macOS binary that runs under Rosetta 2.
-#    Built with cargo.
+#    Built with cargo, and installed inside an application bundle,
+#    ~/cs2-metal/bin/cs2metal.app, whose Info.plist tells macOS that it is a game
+#    (tools/host-bundle.sh), with the game's own icon if the game is downloaded.
 #
 # 2. The guest's C library: Debian's glibc 2.31 with cs2metal's patch
 #    (guest/glibc/patch_glibc.py). Its six libraries have tracked checksums,
@@ -104,9 +106,14 @@ fi
 
 say "installing to $bin_dir"
 mkdir -p "$bin_dir" "$data_dir" "$logs_dir"
-# Written beside and renamed, so a running game keeps the program it started.
-cp "target/$target/release/cs2metal" "$bin_dir/cs2metal.new"
-mv "$bin_dir/cs2metal.new" "$host_bin"
+# The program is written beside its place and renamed, so a running game keeps
+# the program it started.
+tools/host-bundle.sh "$host_app" "target/$target/release/cs2metal" \
+    "$(git rev-parse --short HEAD 2> /dev/null || echo 0)"
+make_icon "$host_app/Contents/Resources/icon.icns" || true
+# Before 27 November 2026 the program lay in bin/ itself. Two copies would be two
+# programs to start by mistake, and Metal keeps its compiled shaders by program.
+rm -f "$bin_dir/cs2metal"
 if [ "$host_only" = 0 ]; then
     rm -rf "$guest_dir.new"
     cp -R "$built" "$guest_dir.new"
@@ -114,7 +121,7 @@ if [ "$host_only" = 0 ]; then
     mv "$guest_dir.new" "$guest_dir"
 fi
 for script in run.sh run-offline.sh create-shortcut.sh tools/common.sh tools/low-preset.sh \
-    tools/steam_shortcuts.py; do
+    tools/host-bundle.sh tools/steam_shortcuts.py; do
     install -m 755 "$script" "$bin_dir/$(basename "$script")"
 done
 git rev-parse --short HEAD > "$bin_dir/VERSION" 2> /dev/null || true
