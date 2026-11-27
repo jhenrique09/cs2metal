@@ -47,8 +47,9 @@ and paths stay in English too.
 - Every document other than this index opens with a `## Status` section.
 - Dates are absolute ("26 November 2026"), never relative.
 - Paths are neutral: `~`, `$HOME`, `<game_dir>`. Never a real home directory.
-- Nothing derived from Valve's binaries is recorded beyond counts and public ABI
-  names, as the [policy](ANTI_CHEAT_AND_INTEGRITY_POLICY.md) explains.
+- Nothing derived from Valve's binaries is recorded beyond counts, public interface
+  names, and the option and configuration key names needed to describe behavior, as
+  the [policy](ANTI_CHEAT_AND_INTEGRITY_POLICY.md) explains.
 - No credential, token, Steam session file, or machine-specific report belongs here.
 
 ## Checks

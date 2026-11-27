@@ -53,7 +53,10 @@ below still apply in full.
   file, no Apple SDK component, and no third-party binary is tracked.
 - Nothing derived from Valve's binaries is tracked either: no symbol tables, string
   lists, disassembly, or offsets of Valve code. Documents may state counts and name
-  public ABI functions (glibc, the C++ runtime, SDL, Vulkan).
+  public interfaces (glibc, the C++ runtime, SDL, Vulkan extensions and commands, the
+  public Steamworks API), and may name the launch options, environment variables,
+  and configuration keys needed to describe behavior. Diagnostics are paraphrased,
+  not quoted. A public third-party source is cited by link, never copied in.
 - Third-party runtime pieces (a Vulkan driver, the Steam Linux Runtime's C++
   libraries, macOS builds of SDL) are downloaded by the owner from their upstreams.
 

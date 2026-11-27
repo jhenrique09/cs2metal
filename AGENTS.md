@@ -33,8 +33,10 @@ The documentation lives in `docs/`, in this repository. Read
   authentication or ownership. Steam features go through the owner's own Steam client.
 - Never track game files, Steam session material, credentials, or dumps derived from
   Valve binaries (symbol tables, disassembly, string lists). Generated reports belong
-  in the ignored `reports/` directory. Documentation may cite counts and the names of
-  public ABI functions (glibc, SDL, Vulkan), not Valve's own export lists.
+  in the ignored `reports/` directory. Documentation may cite counts, the names of
+  public interfaces (glibc, SDL, Vulkan, the public Steamworks API), and the launch
+  options and configuration keys needed to describe behavior, not Valve's own export
+  lists or quoted strings.
 - Use neutral paths in tracked files: `~`, `$HOME`, or `<game_dir>`, never a real home
   directory.
 - Parsers must never panic on malformed input; return a typed error.
