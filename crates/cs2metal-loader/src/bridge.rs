@@ -56,10 +56,10 @@ pub(crate) mod host {
     pub const BRIDGE_TOP: u64 = 0x10;
     /// The host stack pointer to return to when a guest thread ends.
     pub const SAVED_RSP: u64 = 0x18;
-    /// The thunk's frames, 64 bytes each, to the end of the block: 63 nested
+    /// The thunk's frames, 128 bytes each, to the end of the block: 31 nested
     /// guest-to-host calls per thread.
     pub const BRIDGE_FRAMES: u64 = 0x40;
-    pub const BRIDGE_FRAME_SIZE: u64 = 64;
+    pub const BRIDGE_FRAME_SIZE: u64 = 128;
     pub const SIZE: u64 = 0x1000;
 }
 
@@ -86,6 +86,27 @@ pub struct SyscallFrame {
 pub type SyscallHandler = extern "C" fn(&mut SyscallFrame) -> u64;
 
 static HANDLER: AtomicU64 = AtomicU64::new(0);
+static FIXUP: AtomicU64 = AtomicU64::new(0);
+
+/// Rewrites what a host function returns before the guest sees it, in the host
+/// domain: the Steam bridge turns host interface pointers into guest proxies.
+pub type ReturnFixup = extern "C" fn(u64) -> u64;
+
+/// Installs the fixup that the fixing thunk ([`Bridge::host_fixed`]) applies.
+pub fn set_return_fixup(fixup: ReturnFixup) {
+    FIXUP.store(fixup as *const () as u64, Ordering::Release);
+}
+
+#[cfg_attr(not(target_arch = "x86_64"), allow(dead_code))]
+extern "C" fn fixup(value: u64) -> u64 {
+    let f = FIXUP.load(Ordering::Acquire);
+    if f == 0 {
+        return value;
+    }
+    // SAFETY: only set_return_fixup stores here, from a ReturnFixup.
+    let f: ReturnFixup = unsafe { std::mem::transmute(f as usize) };
+    f(value)
+}
 
 /// Installs the handler every guest system call reaches.
 pub fn set_syscall_handler(handler: SyscallHandler) {
@@ -160,6 +181,61 @@ mod imp {
         tsd = const host::TSD,
         guest = const host::GUEST_TP,
         frame = const host::BRIDGE_FRAME_SIZE,
+    );
+
+    // The fixing thunk: the host thunk, plus a call to the registered return
+    // fixup on rax, in the host domain, with rdx, xmm0, and xmm1 kept. Frame
+    // slots 64 and 80 hold xmm0 and xmm1.
+    core::arch::global_asm!(
+        ".p2align 4",
+        ".globl _cs2metal_fixed_thunk",
+        "_cs2metal_fixed_thunk:",
+        "mov r10, qword ptr gs:[{block}]",
+        "mov r10, qword ptr [r10 + {top}]",
+        "mov qword ptr [r10 + 0], rax",
+        "pop rax",
+        "mov qword ptr [r10 + 8], rax",
+        "mov qword ptr [r10 + 16], rbx",
+        "mov qword ptr [r10 + 24], r12",
+        "mov qword ptr [r10 + 32], r11",
+        "mov qword ptr [r10 + 40], rcx",
+        "mov qword ptr [r10 + 48], rdi",
+        "mov rbx, qword ptr gs:[{block}]",
+        "mov r12, r10",
+        "lea r10, [r12 + {frame}]",
+        "mov qword ptr [rbx + {top}], r10",
+        "mov rdi, qword ptr [rbx + {tsd}]",
+        "mov eax, 0x3000003",
+        "syscall",
+        "mov rdi, qword ptr [r12 + 48]",
+        "mov rcx, qword ptr [r12 + 40]",
+        "mov rax, qword ptr [r12 + 0]",
+        "call qword ptr [r12 + 32]",
+        "mov qword ptr [r12 + 48], rdx",
+        "movdqu xmmword ptr [r12 + 64], xmm0",
+        "movdqu xmmword ptr [r12 + 80], xmm1",
+        "mov rdi, rax",
+        "call {fixup}",
+        "mov qword ptr [r12 + 40], rax",
+        "movdqu xmm0, xmmword ptr [r12 + 64]",
+        "movdqu xmm1, xmmword ptr [r12 + 80]",
+        "mov rdi, qword ptr [rbx + {guest}]",
+        "mov eax, 0x3000003",
+        "syscall",
+        "mov rax, qword ptr [r12 + 40]",
+        "mov rdx, qword ptr [r12 + 48]",
+        "mov qword ptr [rbx + {top}], r12",
+        "mov rcx, qword ptr [r12 + 8]",
+        "mov rbx, qword ptr [r12 + 16]",
+        "mov r12, qword ptr [r12 + 24]",
+        "push rcx",
+        "ret",
+        block = const tcb::HOST_BLOCK,
+        top = const host::BRIDGE_TOP,
+        tsd = const host::TSD,
+        guest = const host::GUEST_TP,
+        frame = const host::BRIDGE_FRAME_SIZE,
+        fixup = sym super::fixup,
     );
 
     // The system call entry. Entered by `call *%gs:0x20` from the rebuilt glibc,
@@ -251,6 +327,7 @@ mod imp {
 
     unsafe extern "C" {
         fn cs2metal_host_thunk();
+        fn cs2metal_fixed_thunk();
         fn cs2metal_syscall_entry();
         pub(crate) fn cs2metal_run_guest_thread(tp: u64, rip: u64, rsp: u64, block: u64) -> u64;
         pub(crate) fn cs2metal_leave_guest_thread(block: u64, status: u64) -> !;
@@ -262,6 +339,10 @@ mod imp {
 
     pub(crate) fn syscall_entry() -> u64 {
         cs2metal_syscall_entry as *const () as u64
+    }
+
+    pub(crate) fn fixed_thunk_entry() -> u64 {
+        cs2metal_fixed_thunk as *const () as u64
     }
 
     fn gs_word(index: u64) -> u64 {
@@ -411,6 +492,9 @@ mod imp {
     pub(crate) fn syscall_entry() -> u64 {
         0
     }
+    pub(crate) fn fixed_thunk_entry() -> u64 {
+        0
+    }
     pub(crate) fn host_tsd_base() -> Option<u64> {
         None
     }
@@ -551,8 +635,12 @@ pub struct Bridge {
     stubs: Region,
     used: u64,
     capacity: u64,
-    by_target: HashMap<u64, u64>,
+    by_target: HashMap<(u64, u64), u64>,
+    proxy_vtable: Option<Region>,
 }
+
+/// Slots of the generic proxy vtable: more than any Steamworks interface has.
+pub const PROXY_SLOTS: u64 = 256;
 
 /// `movabs r11, target; movabs r10, thunk; jmp r10`.
 const STUB_SIZE: u64 = 23;
@@ -562,7 +650,7 @@ impl Bridge {
         if !cfg!(target_arch = "x86_64") {
             return Err(Error::ForeignHost);
         }
-        let capacity = 64 * 1024;
+        let capacity = 256 * 1024;
         let stubs = Region::reserve(capacity)?;
         stubs.map_zero(0, capacity)?;
         stubs.protect(0, capacity, libc::PROT_READ | libc::PROT_EXEC)?;
@@ -571,33 +659,76 @@ impl Bridge {
             used: 0,
             capacity,
             by_target: HashMap::new(),
+            proxy_vtable: None,
         })
     }
 
-    /// The address guest code calls to reach the host function at `target` with a
-    /// switch to the host domain: one stub per target, made on first request.
-    pub fn host(&mut self, target: u64) -> Result<u64> {
-        if let Some(&stub) = self.by_target.get(&target) {
-            return Ok(stub);
-        }
-        if self.used + STUB_SIZE > self.capacity {
+    fn place(&mut self, code: &[u8]) -> Result<u64> {
+        let len = code.len() as u64;
+        if self.used + len > self.capacity {
             return Err(Error::Map(std::io::ErrorKind::OutOfMemory.into()));
+        }
+        let at = self.used;
+        self.stubs
+            .protect(0, self.capacity, libc::PROT_READ | libc::PROT_WRITE)?;
+        self.stubs.write_bytes(at, code)?;
+        self.stubs
+            .protect(0, self.capacity, libc::PROT_READ | libc::PROT_EXEC)?;
+        self.used += len;
+        Ok(self.stubs.address() + at)
+    }
+
+    fn stub(&mut self, target: u64, entry: u64) -> Result<u64> {
+        if let Some(&stub) = self.by_target.get(&(target, entry)) {
+            return Ok(stub);
         }
         let mut code = Vec::with_capacity(STUB_SIZE as usize);
         code.extend([0x49, 0xbb]);
         code.extend(target.to_le_bytes());
         code.extend([0x49, 0xba]);
-        code.extend(imp::thunk_entry().to_le_bytes());
+        code.extend(entry.to_le_bytes());
         code.extend([0x41, 0xff, 0xe2]);
-        let at = self.used;
-        self.stubs
-            .protect(0, self.capacity, libc::PROT_READ | libc::PROT_WRITE)?;
-        self.stubs.write_bytes(at, &code)?;
-        self.stubs
-            .protect(0, self.capacity, libc::PROT_READ | libc::PROT_EXEC)?;
-        self.used += STUB_SIZE;
-        let stub = self.stubs.address() + at;
-        self.by_target.insert(target, stub);
+        let stub = self.place(&code)?;
+        self.by_target.insert((target, entry), stub);
         Ok(stub)
+    }
+
+    /// As [`Bridge::host`], with the registered return fixup applied to what the
+    /// host function returns.
+    pub fn host_fixed(&mut self, target: u64) -> Result<u64> {
+        self.stub(target, imp::fixed_thunk_entry())
+    }
+
+    /// The vtable every guest proxy of a host C++ object uses. Slot `i` loads the
+    /// real object from the proxy's second word, calls the real object's method
+    /// `i` through the fixing thunk, and so proxies what that method returns too.
+    pub fn proxy_vtable(&mut self) -> Result<u64> {
+        if let Some(table) = &self.proxy_vtable {
+            return Ok(table.address());
+        }
+        let table = Region::reserve(PROXY_SLOTS * 8)?;
+        table.map_zero(0, PROXY_SLOTS * 8)?;
+        for i in 0..PROXY_SLOTS {
+            let mut code = Vec::with_capacity(27);
+            code.extend([0x48, 0x8b, 0x7f, 0x08]); // mov rdi, [rdi + 8]: the real object
+            code.extend([0x4c, 0x8b, 0x1f]); // mov r11, [rdi]: its vtable
+            code.extend([0x4d, 0x8b, 0x9b]); // mov r11, [r11 + 8 * i]: its method
+            code.extend(((8 * i) as u32).to_le_bytes());
+            code.extend([0x49, 0xba]); // movabs r10, fixing thunk
+            code.extend(imp::fixed_thunk_entry().to_le_bytes());
+            code.extend([0x41, 0xff, 0xe2]); // jmp r10
+            let stub = self.place(&code)?;
+            table.write_u64(8 * i, stub)?;
+        }
+        table.protect(0, PROXY_SLOTS * 8, libc::PROT_READ)?;
+        let address = table.address();
+        self.proxy_vtable = Some(table);
+        Ok(address)
+    }
+
+    /// The address guest code calls to reach the host function at `target` with a
+    /// switch to the host domain: one stub per target, made on first request.
+    pub fn host(&mut self, target: u64) -> Result<u64> {
+        self.stub(target, imp::thunk_entry())
     }
 }
