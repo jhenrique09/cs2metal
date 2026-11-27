@@ -28,6 +28,7 @@ as the code. It began as a separate repository and was merged, with its history,
 | [Steam bridge design](STEAM_BRIDGE_DESIGN.md) | Accepted, 27 November 2026, after probes H-1 and H-2 passed: keep the game's own Linux `libsteam_api.so` and bridge it to the macOS client library, so only Valve's code handles identity and licences. |
 | [An opt-in online launch](ONLINE_LAUNCH_DECISION.md) | Accepted, 27 November 2026: `run.sh` accepts `-online`, which leaves `-insecure` out; offline stays the default, and automated boots never use it. |
 | [The shortcut may be added to Steam's library](STEAM_SHORTCUT_DECISION.md) | Accepted, 27 November 2026: `create-shortcut.sh --steam` adds one entry to Steam's list of non-Steam games, only when asked, only while Steam is not running, keeping a copy of the file. |
+| [The shortcut may be added to Steam's library](STEAM_SHORTCUT_DECISION.md) | Accepted, 27 November 2026: `create-shortcut.sh --steam` adds one entry to Steam's list of non-Steam games, only when asked, only while Steam is not running, keeping a copy of the file. |
 
 ## Research
 
@@ -47,6 +48,7 @@ as the code. It began as a separate repository and was merged, with its history,
 | [The first engine boot under cs2metal, 27 November 2026](FIRST_ENGINE_BOOT_2026-11-27.md) | As a dedicated server the engine loads 25 modules and SDL3, finishes its Source 2 initialization, starts loading de_dust2, and stops at SteamGameServer_Init: the C4 gate is met, and the Steam bridge is next. |
 | [The client's first frames, 27 November 2026](CLIENT_FIRST_FRAMES_2026-11-27.md) | The renderer presents the main menu and a match once `gettimeofday`, the audio callback's contract, and null descriptor sets are right; the roadmap's gate is met. |
 | [The client, playable offline, 27 November 2026](CLIENT_PLAYABLE_2026-11-27.md) | The owner plays a practice match with keyboard, mouse, and sound at 50 to 80 frames per second; what was fixed for input, the pacing measured, and what stays open. |
+| [Online play, as the owner reports it, 27 November 2026](ONLINE_PLAY_2026-11-27.md) | The owner plays casual and competitive matches online, with no VAC ban so far. Reported, not measured; at the player's own risk. |
 | [Route and effort review, 27 November 2026](ROUTE_AND_EFFORT_REVIEW_2026-11-27.md) | Owner-requested assessment of the chosen route, its technical gates, alternative libc strategies, Native VIctory reuse, and realistic effort. |
 
 ## Backlog

@@ -109,9 +109,24 @@ Arguments go to the engine: `run.sh +map de_dust2`. Diagnostic variables such as
 `CS2METAL_SDL_TRACE=1` and `CS2METAL_VULKAN_TRACE=1` pass through to the host and
 write to the session's log.
 
-`run-online.sh` starts the game without `-insecure`, so that it can join servers
-secured by Valve Anti-Cheat. How that anti-cheat treats this host is unknown. Read
-the [decision record](ONLINE_LAUNCH_DECISION.md) first, and use a secondary account.
+## Play online
+
+```bash
+~/cs2-metal/bin/run-online.sh
+```
+
+It is `run.sh` without `-insecure`, so the game can join servers secured by Valve
+Anti-Cheat: matchmaking, and most community servers.
+
+**It works, and it is at your own risk.** On 27 November 2026 the owner played
+casual and competitive matches online this way, against other players, and the
+account was not banned ([record](ONLINE_PLAY_2026-11-27.md)). That is one machine
+and one day. Valve does not support this host, how Valve Anti-Cheat treats it is
+unknown, and the project never tries to find out. A ban, if one came, could come
+later, and would be the account's. Read the
+[decision record](ONLINE_LAUNCH_DECISION.md) and the
+[policy](ANTI_CHEAT_AND_INTEGRITY_POLICY.md) first, and play online only with an
+account you can afford to lose.
 
 ## A shortcut
 

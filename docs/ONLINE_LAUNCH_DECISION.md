@@ -56,3 +56,12 @@ Offline stays the default. Going online is a choice the owner makes at each laun
 - The untested step between offline play and secured servers remains available: a
   client with `-insecure` joining a server that does not use Valve Anti-Cheat, such
   as the dedicated server cs2metal already runs.
+
+## What followed
+
+On 27 November 2026 the owner played casual and competitive matches online with
+this launcher and reports no ban so far
+([online play, as the owner reports it](ONLINE_PLAY_2026-11-27.md)). That report
+does not change the Context above: how Valve Anti-Cheat treats this host is still
+unknown, and going online stays a choice made at each launch, at the player's own
+risk.

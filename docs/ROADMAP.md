@@ -27,7 +27,7 @@ that changes it.
 | Loader, rebuilt glibc, system call layer, `cs2metal run` | Built (phase C) |
 | SDL bridge: window, keyboard, mouse, sound | Built; gate met ([SDL bridge](SDL_BRIDGE.md)) |
 | Vulkan bridge on MoltenVK | Built; the renderer presents ([Vulkan bridge](VULKAN_BRIDGE.md)) |
-| The game | Main menu and a practice match with bots, offline with `-insecure` ([record](CLIENT_PLAYABLE_2026-11-27.md)) |
+| The game | Main menu and a practice match with bots, offline with `-insecure` ([record](CLIENT_PLAYABLE_2026-11-27.md)); casual and competitive matches online, by the owner's report ([record](ONLINE_PLAY_2026-11-27.md)) |
 | Setting up, building, updating, starting | `install.sh`, `build.sh`, `run.sh`, `create-shortcut.sh` ([getting started](GETTING_STARTED.md)) |
 
 The game starts today and the owner plays a practice match. What follows the

@@ -6,7 +6,10 @@ Current as of 27 November 2026. M0 is complete; the gates of M3, M4, M5, and M6
 have passed, with single items of M1, M2, M3, M5, and M6 still open below; M7's
 bridge works for the client; and the owner plays a practice match. M8's
 thirty-minute gate is the next one
-([the client, playable offline](CLIENT_PLAYABLE_2026-11-27.md)).
+([the client, playable offline](CLIENT_PLAYABLE_2026-11-27.md)). Outside the
+milestones, which stop at offline play, the owner reports casual and competitive
+matches online ([record](ONLINE_PLAY_2026-11-27.md)), and the scripts of
+[getting started](GETTING_STARTED.md) set the game up, build, update, and start it.
 
 Milestone numbers are identifiers, not the order of work. [ROADMAP.md](ROADMAP.md)
 gives the order, with the exact commands for the owner actions: the Steam and Vulkan
@@ -256,7 +259,9 @@ Gate: thirty minutes of a local bot match on one map with no crash, launched wit
 State on 27 November 2026: the owner plays practice matches on `de_dust2` with
 bots, at 50 to 80 frames per second depending on the settings, with stutters
 ([the client, playable offline](CLIENT_PLAYABLE_2026-11-27.md)). The sessions were
-shorter than the gate and not timed, so the gate is not passed yet.
+shorter than the gate and not timed, so the gate is not passed yet. The owner's
+online matches of the same day ([record](ONLINE_PLAY_2026-11-27.md)) were not timed
+either and are not this gate, which is offline.
 
 ### M9: life after Rosetta
 

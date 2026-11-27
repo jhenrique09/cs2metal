@@ -12,6 +12,13 @@ support, including the risk to the Steam account used for testing. That acceptan
 covers the owner's own testing. It does not extend to anyone else, and the rules
 below still apply in full.
 
+Anyone else who runs this project does so **at their own risk**, and accepts the
+same risk for their own Steam account. The project comes with no warranty, and
+nothing in its documentation is a promise that an account stays in good standing.
+On 27 November 2026 the owner played casual and competitive matches online and
+reports no ban so far ([record](ONLINE_PLAY_2026-11-27.md)). That is one report of
+one day, not evidence of safety.
+
 ## What Valve says
 
 - Valve Anti-Cheat names "modifications to a game's core executable files and
