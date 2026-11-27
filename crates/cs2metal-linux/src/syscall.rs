@@ -461,6 +461,7 @@ fn answer(f: &mut SyscallFrame) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::ffi::CString;
 
     /// Answers system call `number` with Linux arguments, as the guest would make it.
     fn call(number: u64, args: [u64; 6]) -> i64 {
@@ -477,6 +478,26 @@ mod tests {
             return_address: 0,
         };
         answer(&mut frame) as i64
+    }
+
+    #[test]
+    fn link_makes_a_second_name() {
+        let dir = std::env::temp_dir().join(format!("cs2metal-link-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).expect("dir");
+        std::fs::write(dir.join("a"), b"x").expect("write");
+        let c = |p: &str| CString::new(dir.join(p).to_string_lossy().as_bytes()).expect("path");
+        let (a, b) = (c("a"), c("b"));
+        assert_eq!(
+            call(86, [a.as_ptr() as u64, b.as_ptr() as u64, 0, 0, 0, 0]),
+            0
+        );
+        assert_eq!(std::fs::read(dir.join("b")).expect("read"), b"x");
+        let at = c("c");
+        let cwd = libc::AT_FDCWD as i64 as u64; // AT_FDCWD is -100 on both
+        let args = [cwd, a.as_ptr() as u64, cwd, at.as_ptr() as u64, 0, 0];
+        assert_eq!(call(265, args), 0, "linkat");
+        assert!(dir.join("c").exists());
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

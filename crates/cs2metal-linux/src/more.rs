@@ -223,6 +223,15 @@ pub(crate) fn answer(f: &SyscallFrame) -> Option<i64> {
                 Ok(p) => result(i64::from(libc::rmdir(p.as_ptr()))),
                 Err(e) => e,
             },
+            // link: the source as Modify, so that an installation file is copied
+            // up first and no link ever shares the installation's inode.
+            86 => match (
+                host_path(a0, libc::AT_FDCWD, Use::Modify),
+                host_path(a1, libc::AT_FDCWD, Use::Replace),
+            ) {
+                (Ok(from), Ok(to)) => result(i64::from(libc::link(from.as_ptr(), to.as_ptr()))),
+                (Err(e), _) | (_, Err(e)) => e,
+            },
             87 => match host_path(a0, libc::AT_FDCWD, Use::Remove) {
                 Ok(p) => result(i64::from(libc::unlink(p.as_ptr()))),
                 Err(e) => e,
@@ -322,6 +331,23 @@ pub(crate) fn answer(f: &SyscallFrame) -> Option<i64> {
                     from.as_ptr(),
                     dirfd(a2 as i64),
                     to.as_ptr(),
+                ))),
+                (Err(e), _) | (_, Err(e)) => e,
+            },
+            265 => match (
+                host_path(a1, dirfd(a0 as i64), Use::Modify),
+                host_path(a3, dirfd(a2 as i64), Use::Replace),
+            ) {
+                (Ok(from), Ok(to)) => result(i64::from(libc::linkat(
+                    dirfd(a0 as i64),
+                    from.as_ptr(),
+                    dirfd(a2 as i64),
+                    to.as_ptr(),
+                    if f.arg4 & 0x400 != 0 {
+                        libc::AT_SYMLINK_FOLLOW
+                    } else {
+                        0
+                    },
                 ))),
                 (Err(e), _) | (_, Err(e)) => e,
             },
