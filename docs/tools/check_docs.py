@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check the cs2metal documentation repository before every commit.
+"""Check the cs2metal documentation directory.
 
 Rules:
 - English only in tracked documents.

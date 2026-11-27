@@ -56,9 +56,9 @@ to `reports/`, which is ignored: they are derived from game files and stay local
 | `apps/cs2metal` | Command-line front end |
 | `spikes/` | Small, self-contained platform probes and their reproduction scripts |
 | `tools/` | Repository guard and the check suite run by the pre-commit hook |
-| `docs/` | Separate documentation repository (architecture, decisions, plan, research) |
+| `docs/` | Architecture, decision records, implementation plan, research, and policies |
 
 ## Documentation
 
 Architecture, decision records, the implementation plan, and dated research live in
-the documentation repository nested at `docs/`. Start with `docs/README.md`.
+[`docs/`](docs/README.md). Start with the index there.

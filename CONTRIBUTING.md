@@ -18,8 +18,8 @@ guard. Stage complete changes rather than partial hunks so both see the same cod
 
 - Tests for every change in behavior, in the same commit.
 - English everywhere: code, comments, documentation, commit messages.
-- An entry in the documentation repository (`docs/`) when the change affects
-  architecture, a decision, or a milestone.
+- An update under `docs/` when the change affects architecture, a decision, or a
+  milestone.
 
 ## What never goes in
 

@@ -1,11 +1,10 @@
 # cs2metal documentation
 
-This repository holds the architecture, decision records, implementation plan,
+This directory holds the architecture, decision records, implementation plan,
 research, and policies of cs2metal, an experimental host that runs the native Linux
-build of Counter-Strike 2 on Apple silicon Macs. The code lives in the enclosing
-`cs2metal` repository, which ignores this directory; the two are versioned
-separately so that executable, tested code stays apart from documents that follow a
-discussion and evidence lifecycle.
+build of Counter-Strike 2 on Apple silicon Macs. It is tracked in the same repository
+as the code. It began as a separate repository and was merged, with its history, on
+26 November 2026.
 
 ## Current normative documents
 

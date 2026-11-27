@@ -12,6 +12,12 @@ python3 -m unittest discover -s tools/tests -q
 echo "==> repository guard ($mode)"
 python3 tools/repo_guard.py "$mode"
 
+echo "==> documentation checker tests"
+python3 -m unittest discover -s docs/tests -q
+
+echo "==> documentation checker"
+python3 docs/tools/check_docs.py
+
 if [[ -f Cargo.toml ]]; then
     echo "==> cargo fmt"
     cargo fmt --all -- --check

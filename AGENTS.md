@@ -3,7 +3,7 @@
 This file defines the working rules for automated contributors. Human contributors
 should read [CONTRIBUTING.md](CONTRIBUTING.md), which covers the same invariants.
 
-The documentation repository is nested at `docs/` and versioned separately. Read
+The documentation lives in `docs/`, in this repository. Read
 `docs/ARCHITECTURE.md`, `docs/IMPLEMENTATION_PLAN.md`, and
 `docs/ANTI_CHEAT_AND_INTEGRITY_POLICY.md` before changing behavior.
 
@@ -54,5 +54,5 @@ that need the game are owner actions recorded in `docs/IMPLEMENTATION_PLAN.md`.
 
 - English, imperative subject line under 72 characters, a body that says why.
 - One concern per commit. Keep the tree green at every commit.
-- Update `docs/IMPLEMENTATION_PLAN.md` (in the docs repository) when a milestone
-  item changes state, with the validation evidence.
+- Update `docs/IMPLEMENTATION_PLAN.md` when a milestone item changes state, with the
+  validation evidence.

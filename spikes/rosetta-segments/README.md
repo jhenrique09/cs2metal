@@ -21,6 +21,6 @@ its own process with a five-second timeout (`PROBE_TIMEOUT` overrides it).
 | `ldt-auto`, `ldt-fixed` | A data segment from `i386_set_ldt`, as 32-bit Wine once used |
 | `gs-swap` | Sets the GS base with `thread_fast_set_cthread_self`, reads through it, restores the host TSD base, checks `pthread_getspecific`, and times a swap pair |
 
-The results, their interpretation, and the decision they feed are recorded in the
-documentation repository: `docs/ROSETTA_SEGMENT_PROBE_2026-11-26.md` and
-`docs/TLS_UNDER_ROSETTA_DECISION.md`.
+The results, their interpretation, and the decision they feed are recorded in
+[the probe report](../../docs/ROSETTA_SEGMENT_PROBE_2026-11-26.md) and
+[the TLS decision](../../docs/TLS_UNDER_ROSETTA_DECISION.md).
