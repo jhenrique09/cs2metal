@@ -63,10 +63,11 @@ explicitly before every commit.
 - [ ] Run `cs2metal inventory <game_dir>` and answer open questions Q-1 to Q-5 of the
   [feasibility research](FEASIBILITY_RESEARCH_2026-11-26.md) in a new dated research
   document that records counts and public ABI names only.
-- [ ] **Owner action:** download the Steam Linux Runtime 3.0 ("sniper") from Valve's
-  public repository and extract its C++ runtime (roadmap step A5), then run the
-  inventory on it, to check that libstdc++ and libgcc_s 10.3 satisfy the build's
-  symbol versions.
+- [x] Download the Steam Linux Runtime 3.0 ("sniper") from Valve's public repository
+  and extract its C++ runtime (roadmap step A5). Done on 27 November 2026: runtime
+  3.0.20261021, checksum verified, both libraries parsed by `cs2metal inspect`.
+- [ ] Check that libstdc++ and libgcc_s 10.3 satisfy the build's symbol versions,
+  once the Linux build is inventoried.
 - [ ] **Owner action:** install the Vulkan SDK for macOS and record `vulkaninfo` for
   each driver (roadmap step A6).
 

@@ -19,7 +19,8 @@ that changes it.
 | Vulkan needs against both drivers, from public data | Researched ([report](VULKAN_REQUIREMENTS_RESEARCH_2026-11-27.md)) |
 | Steam bridge | Designed, unproven ([design](STEAM_BRIDGE_DESIGN.md)) |
 | The Linux build on this Mac | **Not downloaded** |
-| Steam for macOS, steamcmd, Vulkan SDK on this Mac | **Not installed** |
+| steamcmd and the sniper C++ runtime on this Mac | Downloaded (A3, A5) |
+| Steam for macOS, Vulkan SDK on this Mac | **Not installed** |
 | Loader, glibc layer, bridge, `cs2metal run` | **Not built** |
 
 The game does not start today. Phases A and B can be done today; phases C to F are
@@ -150,11 +151,16 @@ glibc 2.31, libstdc++ and libgcc_s 10.3, SDL 3.4, and the Vulkan loader 1.4.309.
 mkdir -p ~/cs2metal-kit/sniper && cd ~/cs2metal-kit/sniper
 B=https://repo.steampowered.com/steamrt3/images/latest-public-stable
 F='com.valvesoftware.SteamRuntime.Platform-amd64,i386-sniper-runtime.tar.gz'
-curl -fLO "$B/$F" && curl -fsSLO "$B/SHA256SUMS"
-grep -F "$F" SHA256SUMS | shasum -a 256 -c -
-tar -xzf "$F" --include '*/x86_64-linux-gnu/libstdc++.so.6*' \
-              --include '*/x86_64-linux-gnu/libgcc_s.so.1'
+curl -fL --http1.1 --retry 5 --retry-all-errors -C - -O "$B/$F" \
+  && curl -fsSL --retry 5 -O "$B/SHA256SUMS" \
+  && grep -F "$F" SHA256SUMS | shasum -a 256 -c - \
+  && tar -xzf "$F" --include '*/x86_64-linux-gnu/libstdc++.so.6*' \
+                   --include '*/x86_64-linux-gnu/libgcc_s.so.1'
 ```
+The commands are chained and the download resumes (`-C -`) and retries, because the
+first attempt on the development machine was cut by an HTTP/2 stream error at 59%
+and the unchained commands that followed ran against a truncated file.
+
 
 Only the two libraries are extracted. That is all the host loads from the runtime,
 and it avoids unpacking a Linux tree onto a case-insensitive volume. The runtime's
@@ -162,6 +168,12 @@ glibc is never loaded (cs2metal provides that ABI), and its SDL and Vulkan loade
 replaced by macOS libraries.
 
 Done when: `sniper/files/lib/x86_64-linux-gnu/libstdc++.so.6` resolves to a file.
+
+State: **done on the development machine on 27 November 2026.** Runtime
+3.0.20261021, checksum verified. `cs2metal inspect` reads both libraries: libstdc++
+6.0.28 imports 128 versioned symbols from `libc.so.6` and 12 from `libgcc_s.so.1`,
+and libgcc_s imports 12 from `libc.so.6`. These are the first real ELF files the
+parser has read. (CONFIRMED)
 
 ### A6. The Vulkan SDK for macOS (owner, S)
 

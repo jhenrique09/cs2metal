@@ -95,13 +95,19 @@ extracts only the two libraries the host loads.
 mkdir -p ~/cs2metal-kit/sniper && cd ~/cs2metal-kit/sniper
 B=https://repo.steampowered.com/steamrt3/images/latest-public-stable
 F='com.valvesoftware.SteamRuntime.Platform-amd64,i386-sniper-runtime.tar.gz'
-curl -fLO "$B/$F" && curl -fsSLO "$B/SHA256SUMS"
-grep -F "$F" SHA256SUMS | shasum -a 256 -c -
-tar -xzf "$F" --include '*/x86_64-linux-gnu/libstdc++.so.6*' \
-              --include '*/x86_64-linux-gnu/libgcc_s.so.1'
+curl -fL --http1.1 --retry 5 --retry-all-errors -C - -O "$B/$F" \
+  && curl -fsSL --retry 5 -O "$B/SHA256SUMS" \
+  && grep -F "$F" SHA256SUMS | shasum -a 256 -c - \
+  && tar -xzf "$F" --include '*/x86_64-linux-gnu/libstdc++.so.6*' \
+                   --include '*/x86_64-linux-gnu/libgcc_s.so.1'
 ```
+The commands are chained, so a failed download stops before the checksum and the
+extraction. If the transfer is cut, run the same block again: `-C -` resumes the
+partial file instead of starting over.
 
-The `shasum` line must end in `OK`.
+
+The `shasum` line must end in `OK`, and `files/lib/x86_64-linux-gnu/` must then hold
+`libstdc++.so.6.0.28`, its `libstdc++.so.6` link, and `libgcc_s.so.1`.
 
 ## 6. Install the Vulkan SDK and record both drivers
 
