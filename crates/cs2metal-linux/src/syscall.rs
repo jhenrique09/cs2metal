@@ -242,6 +242,61 @@ pub(crate) extern "C" fn handle(f: &mut SyscallFrame) -> u64 {
     value
 }
 
+/// `fcntl` record locks with Linux's `struct flock` (type and whence first, 32
+/// bytes), which macOS lays out differently (start, length, pid, then type and
+/// whence, 24 bytes), and Linux's lock type numbers.
+fn record_lock(fd: libc::c_int, command: u64, lock: u64) -> i64 {
+    if lock == 0 {
+        return EFAULT;
+    }
+    // SAFETY: the guest passes a struct flock of 32 bytes.
+    let (kind, whence, start, len) = unsafe {
+        (
+            std::ptr::read_unaligned(lock as *const i16),
+            std::ptr::read_unaligned((lock + 2) as *const i16),
+            std::ptr::read_unaligned((lock + 8) as *const i64),
+            std::ptr::read_unaligned((lock + 16) as *const i64),
+        )
+    };
+    let kind = match kind {
+        0 => libc::F_RDLCK,
+        1 => libc::F_WRLCK,
+        2 => libc::F_UNLCK,
+        _ => return EINVAL,
+    };
+    // SAFETY: flock is plain data.
+    let mut host: libc::flock = unsafe { std::mem::zeroed() };
+    host.l_type = kind;
+    host.l_whence = whence;
+    host.l_start = start;
+    host.l_len = len;
+    let host_command = match command {
+        5 | 36 => libc::F_GETLK,
+        6 | 37 => libc::F_SETLK,
+        _ => libc::F_SETLKW,
+    };
+    // SAFETY: fcntl with a host struct flock.
+    if unsafe { libc::fcntl(fd, host_command, &mut host) } < 0 {
+        return result(-1);
+    }
+    if host_command == libc::F_GETLK {
+        let kind: i16 = match host.l_type {
+            libc::F_RDLCK => 0,
+            libc::F_WRLCK => 1,
+            _ => 2,
+        };
+        // SAFETY: as above, writing the guest's struct flock.
+        unsafe {
+            std::ptr::write_unaligned(lock as *mut i16, kind);
+            std::ptr::write_unaligned((lock + 2) as *mut i16, host.l_whence);
+            std::ptr::write_unaligned((lock + 8) as *mut i64, host.l_start);
+            std::ptr::write_unaligned((lock + 16) as *mut i64, host.l_len);
+            std::ptr::write_unaligned((lock + 24) as *mut i32, host.l_pid);
+        }
+    }
+    0
+}
+
 fn answer(f: &mut SyscallFrame) -> u64 {
     if f.number == crate::steam::BIND_STEAM {
         return crate::steam::bind(f.arg0, f.arg1, f.arg2) as u64;
@@ -327,6 +382,9 @@ fn answer(f: &mut SyscallFrame) -> u64 {
                     libc::F_DUPFD_CLOEXEC,
                     a2 as libc::c_int,
                 ))),
+                // F_GETLK, F_SETLK, F_SETLKW; the open file description locks
+                // (36 to 38) are answered as the process-associated ones.
+                5..=7 | 36..=38 => record_lock(fd, a1, a2),
                 4 => {
                     // F_SETFL: only O_APPEND and O_NONBLOCK change, as on Linux
                     // (O_ASYNC and O_DIRECT are not supported).
@@ -416,6 +474,32 @@ mod tests {
             return_address: 0,
         };
         answer(&mut frame) as i64
+    }
+
+    #[test]
+    fn fcntl_record_locks_use_linux_flock() {
+        let path = std::env::temp_dir().join(format!("cs2metal-lock-{}", std::process::id()));
+        let file = std::fs::File::create(&path).expect("file");
+        let fd = std::os::fd::AsRawFd::as_raw_fd(&file) as u64;
+        // Linux struct flock: F_WRLCK, SEEK_SET, start 0, length 0 (the whole file).
+        let mut lock = [0u8; 32];
+        lock[..2].copy_from_slice(&1i16.to_le_bytes());
+        assert_eq!(
+            call(72, [fd, 6, lock.as_ptr() as u64, 0, 0, 0]),
+            0,
+            "F_SETLK"
+        );
+        // The same process asking F_GETLK sees no conflict: F_UNLCK comes back.
+        assert_eq!(
+            call(72, [fd, 5, lock.as_mut_ptr() as u64, 0, 0, 0]),
+            0,
+            "F_GETLK"
+        );
+        assert_eq!(i16::from_le_bytes([lock[0], lock[1]]), 2);
+        lock[..2].copy_from_slice(&9i16.to_le_bytes());
+        assert_eq!(call(72, [fd, 6, lock.as_ptr() as u64, 0, 0, 0]), EINVAL);
+        drop(file);
+        let _ = std::fs::remove_file(path);
     }
 
     #[test]
