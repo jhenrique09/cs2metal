@@ -350,6 +350,21 @@ pub(crate) fn answer(f: &SyscallFrame) -> Option<i64> {
                     timeout,
                 )))
             }
+            37 => 0, // alarm: no SIGALRM is delivered yet
+            143 => {
+                // sched_getparam: priority 0 under SCHED_OTHER.
+                if a1 != 0 {
+                    std::ptr::write_unaligned(a1 as *mut i32, 0);
+                }
+                0
+            }
+            145 => 0,                       // sched_getscheduler: SCHED_OTHER
+            213 => crate::epoll::create(0), // epoll_create
+            221 => 0,                       // fadvise64: advice only
+            232 => crate::epoll::wait(a0 as i64, a1, a2, a3 as i32 as i64),
+            233 => crate::epoll::ctl(a0 as i64, a1, a2 as i64, a3),
+            281 => crate::epoll::wait(a0 as i64, a1, a2, a3 as i32 as i64), // epoll_pwait
+            291 => crate::epoll::create(a0),
             284 => fds::eventfd(a0, 0),
             290 => fds::eventfd(a0, a1),
             292 => result(i64::from(libc::dup2(fd, a1 as libc::c_int))),

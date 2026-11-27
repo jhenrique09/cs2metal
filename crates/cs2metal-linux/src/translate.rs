@@ -48,6 +48,7 @@ pub fn result(value: i64) -> i64 {
     }
 }
 
+pub const ENOENT: i64 = -2;
 pub const EBADF: i64 = -9;
 pub const EAGAIN: i64 = -11;
 pub const ENOMEM: i64 = -12;

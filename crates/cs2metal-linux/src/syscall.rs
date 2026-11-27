@@ -248,6 +248,7 @@ fn answer(f: &mut SyscallFrame) -> u64 {
             3 => {
                 crate::fds::close(fd);
                 crate::fds::close_dir(fd);
+                crate::epoll::close(a0 as i64);
                 result(i64::from(libc::close(fd)))
             }
             4 => stat_path(a0, a1, true),
