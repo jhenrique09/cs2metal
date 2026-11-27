@@ -135,9 +135,9 @@ In order; each probe is small and isolated, and the first two need no guest code
 
 | Id | Hypothesis | Probe | If false |
 | --- | --- | --- | --- |
-| H-1 | The macOS Steam installation contains a `steamclient.dylib` with an x86-64 slice. | `lipo -info` on the library after installing Steam. | The bridge would need a helper process of the library's architecture. |
+| H-1 | The macOS Steam installation contains a `steamclient.dylib` with an x86-64 slice. | `lipo -info` on the library after installing Steam. **CONFIRMED on 27 November 2026** ([probe](STEAM_CLIENT_PROBE_2026-11-27.md)). | The bridge would need a helper process of the library's architecture. |
 | H-2 | An x86-64 macOS process that declares app 730 can connect to the running client and query the signed-in user and the app's licence, although Valve lists no macOS platform for the app. | A native probe under `spikes/` that loads the library, creates a pipe, connects to the global user, and asks `ISteamUser` and `ISteamApps` two read-only questions. | Steam on macOS refuses the app; the bridge cannot work as designed and the fallback below applies. |
-| H-3 | The interface versions the game's `libsteam_api.so` requests are known to the macOS client library. | `Steam_IsKnownInterface` for each version string the inventory finds. | Per-interface gaps; the game normally tolerates a newer client. |
+| H-3 | The interface versions the game's `libsteam_api.so` requests are known to the macOS client library. | Ask the factory for each version string the inventory finds. (The macOS library does not export `Steam_IsKnownInterface`; see the [probe](STEAM_CLIENT_PROBE_2026-11-27.md).) | Per-interface gaps; the game normally tolerates a newer client. |
 | H-4 | Callback and result structures have identical layouts. | Compare sizes and offsets from the public headers compiled for both targets. | A translation table for the structures that differ. |
 | H-5 | The engine needs Steam before it creates its window. | The first boot log of M4: the engine logs the outcome of its Steam initialization either way. (REPORTED from public strings.) | If initialization failure is not fatal, the first frame does not depend on this bridge at all. |
 

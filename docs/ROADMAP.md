@@ -19,8 +19,9 @@ that changes it.
 | Vulkan needs against both drivers, from public data | Researched ([report](VULKAN_REQUIREMENTS_RESEARCH_2026-11-27.md)) |
 | Steam bridge | Designed, unproven ([design](STEAM_BRIDGE_DESIGN.md)) |
 | The Linux build on this Mac | **Not downloaded** |
-| steamcmd and the sniper C++ runtime on this Mac | Downloaded (A3, A5) |
-| Steam for macOS, Vulkan SDK on this Mac | **Not installed** |
+| Steam for macOS, steamcmd, the sniper C++ runtime on this Mac | Installed (A2, A3, A5); Steam not yet signed in |
+| Steam client library usable from an x86-64 process (H-1) | Confirmed ([probe](STEAM_CLIENT_PROBE_2026-11-27.md)) |
+| Vulkan SDK on this Mac | **Not installed** |
 | Loader, glibc layer, bridge, `cs2metal run` | **Not built** |
 
 The game does not start today. Phases A and B can be done today; phases C to F are
@@ -289,7 +290,8 @@ Nothing about identity, ownership, or sessions is emulated.
 ### D1. Probes that need no guest code (to build, S; possible right after A2)
 
 - H-1: `lipo -info` on the `steamclient.dylib` inside the Steam installation shows an
-  x86-64 slice.
+  x86-64 slice. **Done, 27 November 2026: confirmed**
+  ([probe](STEAM_CLIENT_PROBE_2026-11-27.md)).
 - H-2: a small native x86-64 program under `spikes/` declares app 730, connects to
   the running client through that library, and asks two read-only questions: is the
   user signed in, and does the account hold app 730.

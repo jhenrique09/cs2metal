@@ -124,8 +124,10 @@ window. Second gate: the main menu renders.
 
 ### M7: Steam
 
-- [ ] Probes H-1 to H-4 of the [Steam bridge design](STEAM_BRIDGE_DESIGN.md) (Q-8)
-  against the owner's macOS Steam client, the first two before any bridge code.
+- [x] Probe H-1 of the [Steam bridge design](STEAM_BRIDGE_DESIGN.md): confirmed on
+  27 November 2026 ([probe](STEAM_CLIENT_PROBE_2026-11-27.md)).
+- [ ] Probes H-2 to H-4 (Q-8) against the owner's macOS Steam client, H-2 before any
+  bridge code.
 - [ ] The bridged client module and the interface proxies.
 
 Gate: Steam initialization succeeds for app 730 without any change to Steam
