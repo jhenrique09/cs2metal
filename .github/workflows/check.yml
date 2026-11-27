@@ -1,0 +1,41 @@
+# Runs tools/check.sh, the suite every commit must pass, on an Apple silicon Mac.
+# It needs neither the game nor Steam: tests that need the fixtures or the guest's
+# C library skip themselves when those are absent, as on a fresh clone.
+name: check
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: tools/check.sh
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # The loader and the host run as x86-64 processes, under Rosetta 2.
+      - name: Install Rosetta 2
+        run: /usr/bin/pgrep -q oahd || sudo softwareupdate --install-rosetta --agree-to-license
+
+      - name: Install the Rust toolchain
+        run: |
+          rustup show active-toolchain || rustup toolchain install
+          rustup target add x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run the checks
+        run: tools/check.sh
