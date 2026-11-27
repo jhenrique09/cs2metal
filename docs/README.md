@@ -1,20 +1,34 @@
 # cs2metal documentation
 
 This directory holds the architecture, decision records, implementation plan,
-research, and policies of cs2metal, an experimental host that runs the native Linux
-build of Counter-Strike 2 on Apple silicon Macs. It is tracked in the same repository
-as the code. It began as a separate repository and was merged, with its history, on
+research, and policies of cs2metal, a host that runs the native Linux build of
+Counter-Strike 2 on Apple silicon Macs. It is tracked in the same repository as the
+code. It began as a separate repository and was merged, with its history, on
 26 November 2026.
 
-## Current normative documents
+## Where to start
+
+| If you want to | Read |
+| --- | --- |
+| Play | [Getting started](GETTING_STARTED.md), then the risk in the [policy](ANTI_CHEAT_AND_INTEGRITY_POLICY.md) |
+| Know what works today | [The client, playable offline](CLIENT_PLAYABLE_2026-11-27.md) and [online play](ONLINE_PLAY_2026-11-27.md) |
+| Understand how it works | [Architecture](ARCHITECTURE.md), then the three bridges: [SDL](SDL_BRIDGE.md), [Vulkan](VULKAN_BRIDGE.md), [Steam](STEAM_BRIDGE_DESIGN.md) |
+| Know why it is built this way | The [decision records](#decision-records) |
+| Contribute | `CONTRIBUTING.md` and `AGENTS.md` at the repository root, then the [implementation plan](IMPLEMENTATION_PLAN.md) |
+
+## Current documents
+
+These describe the project as it is and change with it.
 
 | Document | Purpose |
 | --- | --- |
 | [Getting started](GETTING_STARTED.md) | Setting up, starting, updating, and removing the game with `install.sh`, `build.sh`, `run.sh`, and `create-shortcut.sh`; where everything is kept; what to do when something goes wrong. |
-| [Roadmap to the first frame](ROADMAP.md) | The ordered steps from an empty Mac to the game's startup screen: what to install, what exists, what to build, which probes come first. |
-| [Architecture](ARCHITECTURE.md) | Layers, process model, loader, transform registry, bridge, glibc layer, substitution table. |
-| [Implementation plan](IMPLEMENTATION_PLAN.md) | Milestones M0 to M9, their gates and evidence, safety boundary, risks. |
-| [Anti-cheat, integrity, and legal policy](ANTI_CHEAT_AND_INTEGRITY_POLICY.md) | Owner's risk acceptance, the rules that never bend, distribution and licensing. |
+| [Architecture](ARCHITECTURE.md) | Layers, process model, dynamic linking, the transform registry, the bridge, the system call layer, the installation overlay, the substitution table, diagnostics. |
+| [The SDL bridge](SDL_BRIDGE.md) | Window, keyboard, mouse, and sound: how the game's SDL calls reach SDL 3 for macOS, and what differs between the two. |
+| [The Vulkan bridge](VULKAN_BRIDGE.md) | How the renderer's Vulkan calls reach MoltenVK, what the bridge adjusts, and the pacing trace. |
+| [Roadmap to the first frame](ROADMAP.md) | The ordered steps from an empty Mac to the game's startup screen, as they were taken: what was installed, built, and probed, in which order. The goal is met; kept as the record of the path. |
+| [Implementation plan](IMPLEMENTATION_PLAN.md) | Milestones M0 to M9, their gates and evidence, safety boundary, risks; what is next. |
+| [Anti-cheat, integrity, and legal policy](ANTI_CHEAT_AND_INTEGRITY_POLICY.md) | The risk and who accepts it, the rules that never bend, distribution and licensing. |
 
 ## Decision records
 
@@ -28,9 +42,11 @@ as the code. It began as a separate repository and was merged, with its history,
 | [Steam bridge design](STEAM_BRIDGE_DESIGN.md) | Accepted, 27 November 2026, after probes H-1 and H-2 passed: keep the game's own Linux `libsteam_api.so` and bridge it to the macOS client library, so only Valve's code handles identity and licences. |
 | [An opt-in online launch](ONLINE_LAUNCH_DECISION.md) | Accepted, 27 November 2026: `run.sh` accepts `-online`, which leaves `-insecure` out; offline stays the default, and automated boots never use it. |
 | [The shortcut may be added to Steam's library](STEAM_SHORTCUT_DECISION.md) | Accepted, 27 November 2026: `create-shortcut.sh --steam` adds one entry to Steam's list of non-Steam games, only when asked, only while Steam is not running, keeping a copy of the file. |
-| [The shortcut may be added to Steam's library](STEAM_SHORTCUT_DECISION.md) | Accepted, 27 November 2026: `create-shortcut.sh --steam` adds one entry to Steam's list of non-Steam games, only when asked, only while Steam is not running, keeping a copy of the file. |
 
-## Research
+## Research and dated records
+
+In the order they were written. A dated record is not rewritten: a later one
+corrects it and links back.
 
 | Document | Summary |
 | --- | --- |
@@ -47,6 +63,10 @@ as the code. It began as a separate repository and was merged, with its history,
 | [The libc bake-off, 27 November 2026](LIBC_BAKEOFF_2026-11-27.md) | Route B ruled out (a trapped system call costs about 34 µs under Rosetta); route C sends 970 of 975 glibc system call sites through one slot with 20 source lines; route A means 682 functions, about 430 crossing or stateful. |
 | [The first engine boot under cs2metal, 27 November 2026](FIRST_ENGINE_BOOT_2026-11-27.md) | As a dedicated server the engine loads 25 modules and SDL3, finishes its Source 2 initialization, starts loading de_dust2, and stops at SteamGameServer_Init: the C4 gate is met, and the Steam bridge is next. |
 | [The client's first frames, 27 November 2026](CLIENT_FIRST_FRAMES_2026-11-27.md) | The renderer presents the main menu and a match once `gettimeofday`, the audio callback's contract, and null descriptor sets are right; the roadmap's gate is met. |
+| [The dedicated server's ten-minute run, 27 November 2026](DEDICATED_SERVER_RUN_2026-11-27.md) | With sockets emulated, the dedicated server loads a map and runs for ten minutes; roadmap step C5. |
+| [The first boots through the Steam bridge, 27 November 2026](STEAM_BRIDGE_BOOT_2026-11-27.md) | The game's own `libsteam_api.so`, unmodified, initializes a game server through the macOS client library; roadmap step D2. |
+| [The first client boots, 27 November 2026](FIRST_CLIENT_BOOT_2026-11-27.md) | The client opens its window and creates its Vulkan device; its reading of the first frame is corrected by the next record. |
+| [What the client's window shows, 27 November 2026](CLIENT_RENDERING_2026-11-27.md) | Which window shows what, and whether the renderer presents: the correction to the first client boots. |
 | [The client, playable offline, 27 November 2026](CLIENT_PLAYABLE_2026-11-27.md) | The owner plays a practice match with keyboard, mouse, and sound at 50 to 80 frames per second; what was fixed for input, the pacing measured, and what stays open. |
 | [Online play, as the owner reports it, 27 November 2026](ONLINE_PLAY_2026-11-27.md) | The owner plays casual and competitive matches online, with no VAC ban so far. Reported, not measured; at the player's own risk. |
 | [Route and effort review, 27 November 2026](ROUTE_AND_EFFORT_REVIEW_2026-11-27.md) | Owner-requested assessment of the chosen route, its technical gates, alternative libc strategies, Native VIctory reuse, and realistic effort. |

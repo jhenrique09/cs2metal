@@ -2,10 +2,13 @@
 
 ## Status
 
-Normative for milestones M0 to M2, adopted on 26 November 2026. Later sections are
-the current design and change as the milestones in the
-[implementation plan](IMPLEMENTATION_PLAN.md) produce evidence. The route itself is
-fixed by the [Linux build decision](LINUX_BUILD_BASELINE_DECISION.md).
+Adopted on 26 November 2026 and current as of 27 November 2026: every layer below
+is built, and the game runs on it from its menu through a match
+([record](CLIENT_PLAYABLE_2026-11-27.md)). It describes the design as built, and
+changes with the code. The route itself is fixed by the
+[Linux build decision](LINUX_BUILD_BASELINE_DECISION.md). Each bridge has its own
+document: [SDL](SDL_BRIDGE.md), [Vulkan](VULKAN_BRIDGE.md), and
+[Steam](STEAM_BRIDGE_DESIGN.md).
 
 ## Goal and non-goals
 
@@ -14,8 +17,10 @@ inside one macOS process, with the game's code executing as itself and its graph
 audio, input, and Steam calls answered by macOS.
 
 **Non-goals:** modifying game files; anything that touches Valve Anti-Cheat; gameplay
-changes of any kind; online competitive validation (an owner decision, not an
-engineering one); Intel Macs (nothing precludes them, nothing targets them).
+changes of any kind; validating online play (going online is an owner decision,
+not an engineering one, and what the owner reports of it is
+[recorded](ONLINE_PLAY_2026-11-27.md), not measured); Intel Macs (nothing precludes
+them, nothing targets them).
 
 ## Layers
 
@@ -33,8 +38,9 @@ engineering one); Intel Macs (nothing precludes them, nothing targets them).
 │ bridge                GS swap between guest and host domains             │
 │ substitution table    SDL3 → macOS SDL3 · libvulkan → Vulkan loader      │
 │                       steamclient → macOS steamclient                    │
+│ installation overlay  every write of the game lands outside it           │
 ├ macOS ───────────────────────────────────────────────────────────────────┤
-│ libSystem · Vulkan on Metal (KosmicKrisp or MoltenVK) · CoreAudio · HID  │
+│ libSystem · SDL 3 (Cocoa, CoreAudio) · MoltenVK on Metal · Steam client  │
 └ Apple silicon ───────────────────────────────────────────────────────────┘
 ```
 
@@ -82,10 +88,11 @@ kernel would:
   TLS, and later serves `dlopen`. Each of those system calls reaches the host.
 - When ld.so maps an executable range of a file, the host applies T-001 to that
   private mapping before returning, using the code scan's proof for the whole file.
-- Libraries in the substitution table are not loaded as guest code. The guest
-  receives a stub library whose functions enter the host's replacements. How the
-  stubs are presented to ld.so (an audit hook, or a preloaded shim library) is the
-  first design question of that work.
+- Libraries in the substitution table are not loaded as guest code. Wherever the
+  guest opens one of them, the system call layer answers with the project's shim
+  of the same name instead: a small Linux library that exports the same functions
+  and forwards each one through a table the host fills with its replacements. The
+  game's own file is neither read nor changed.
 
 `cs2metal-loader`, the project's own linker, stays as the home of T-001, the TLS
 and bridge primitives, and the fixture tests, and as the fallback should this route
@@ -98,7 +105,7 @@ with its decision record and the counter the host logs at load time.
 
 | Id | Transform | Decision | State |
 | --- | --- | --- | --- |
-| T-001 | Rewrite `fs` segment-override prefixes to `gs` in private mappings of executable segments | [TLS decision](TLS_UNDER_ROSETTA_DECISION.md) | Accepted. Implemented behind `FsRewrite`, off by default; counted per module (`FsReport`: rewritten, in data, unexplained) |
+| T-001 | Rewrite `fs` segment-override prefixes to `gs` in private mappings of executable segments | [TLS decision](TLS_UNDER_ROSETTA_DECISION.md) | Accepted. Applied to every executable file mapping of a game boot; counted per module (`FsReport`: rewritten, in data, unexplained) |
 
 ## Execution domains and the bridge
 
@@ -128,7 +135,8 @@ that made it.
   translated at the boundary: `stat`, `dirent64`, `sigaction`, socket addresses,
   `open`, `mmap`, and `fcntl` flags, signal numbers.
 - Threads: `clone` with glibc's flags becomes a host thread whose GS starts at the new
-  thread's control block; `futex` becomes `__ulock_wait` and `__ulock_wake`;
+  thread's control block; `futex` becomes `os_sync_wait_on_address` and
+  `os_sync_wake_by_address`;
   `set_robust_list` and `rseq` are recorded or declined as glibc tolerates.
   `CS2METAL_FUTEX_TRACE=<seconds>` reports, at that period, each wait parked for two
   seconds or more (its word, the value waited against and the value held now, and
@@ -138,6 +146,13 @@ that made it.
 - Linux-only files and calls the game reads are synthesized: `/proc/self/exe`,
   `/proc/self/maps`, `/proc/cpuinfo`, `/proc/meminfo`, `getrandom`, `uname`,
   `prlimit64`.
+- The installation overlay: the game writes into its own installation
+  (configuration, logs, caches). No write reaches it. Every guest path inside the
+  installation is looked up first in an overlay directory outside it; a write goes
+  to the overlay, copying the original up first when its contents are kept, and
+  removing an original file is refused with `EROFS`. Reads of anything the game
+  has not written fall through to the installation, which stays byte-identical to
+  its baseline.
 - A stand-in for the opening movie: with `CS2METAL_NO_INTRO` set, a read of one of
   the game's opening movies (the `intro` files of its Panorama videos) is answered
   with the project's own file, half a second of black frames with silent sound in
@@ -155,6 +170,8 @@ that made it.
   one read as guest modules and offsets.
   `CS2METAL_STACKS=<seconds>` asks every guest thread for the same line at that
   period, which shows where a thread that never returns is, with its registers.
+  SIGTERM and SIGINT are the exception that is delivered: they become SDL's quit
+  event, so the game shuts itself down as it does from its menu.
 - Time: there is no vDSO, so `clock_gettime` and `gettimeofday` are system calls,
   answered with the host clock and counted for performance.
 
@@ -175,10 +192,29 @@ does not share their data layouts.
 
 ## Diagnostics
 
-- Every unresolved import is named when first called.
-- Crash reports symbolize guest addresses against the guest modules' dynamic symbols.
-  They stay local: they contain Valve symbol names.
-- Load-time counters for every registered transform.
+The host is quiet unless asked. Each of these is an environment variable; what it
+reports goes to standard error, which `run.sh` writes to the session's log.
+
+| Variable | Reports |
+| --- | --- |
+| `CS2METAL_MAPS=1` | Each guest module as it is mapped, with its address range, so that a guest address can be named as a module and an offset |
+| `CS2METAL_TRACE=1` | Every system call the guest makes |
+| `CS2METAL_FUTEX_TRACE=<seconds>` | At that period: waits parked for two seconds or more, and the most woken words |
+| `CS2METAL_STACKS=<seconds>` | At that period: where every guest thread is, with its registers |
+| `CS2METAL_SDL_TRACE=1` | The events the game takes, its input and audio calls, and the guest code that made them ([SDL bridge](SDL_BRIDGE.md)) |
+| `CS2METAL_VULKAN_TRACE=1` | Counts of Vulkan calls, the pacing of presents every ten seconds, and each gap of a quarter second or more ([Vulkan bridge](VULKAN_BRIDGE.md)) |
+| `CS2METAL_STEAM_TRACE=1` | The Steam client interfaces the game asks for, by version ([Steam bridge](STEAM_BRIDGE_DESIGN.md)) |
+
+Always on:
+
+- A fatal signal writes one line: the faulting instruction, the registers, and the
+  return addresses.
+- Every registered transform is counted at load.
+- Each bridge says, as it binds, how many of the shim's functions the host library
+  has (`bound N of M`).
+
+Reports that name guest symbols stay local, in the ignored `runs/` and `reports/`
+directories: they contain Valve's symbol names.
 
 ## Rosetta horizon
 
@@ -191,13 +227,16 @@ private facts the bridge relies on are discovered at run time, never hard-coded.
 
 ## Crate map
 
-| Crate | Role | State |
-| --- | --- | --- |
-| `cs2metal-elf` | Read-only ELF64 parser | M0, done |
-| `cs2metal-inventory` | Installation scan and host requirements | M0, done |
-| `cs2metal` (app) | Command-line front end | M0, `inspect` and `inventory` |
-| `cs2metal-integrity` | Baseline and verification | M1, done |
-| `cs2metal-codescan` | `fs` accesses, unwind coverage, TLS models | M1, done |
-| `cs2metal-loader` | Mapping, relocation, TLS, T-001, the GS bridge (`unsafe` allowed) | M2, three slices: one module, a symbol scope, TLS and the bridge |
-| `cs2metal-linux` | Process start and the Linux system call layer (`unsafe` allowed) | M3: process start, files, memory with T-001, threads, futex; all eight fixtures pass |
-| `cs2metal-platform` | SDL, Vulkan, and Steam substitutions | M5 to M7 |
+| Crate | Role |
+| --- | --- |
+| `cs2metal` (app) | The command-line program: `run`, `baseline`, `inspect`, `inventory`, `tls`, `vulkan` |
+| `cs2metal-elf` | Read-only, bounds-checked ELF64 parser |
+| `cs2metal-inventory` | Installation scan and host requirements |
+| `cs2metal-integrity` | Baseline and verification |
+| `cs2metal-codescan` | `fs` accesses, unwind coverage, TLS models; the proof T-001 relies on |
+| `cs2metal-vulkan` | Static scan of the renderer's Vulkan requirements |
+| `cs2metal-loader` | Mapping, relocation, TLS, T-001, the GS bridge, and the system call entry (`unsafe` allowed) |
+| `cs2metal-linux` | Process start, the Linux system call layer, the installation overlay, and the SDL, Vulkan, and Steam bridges (`unsafe` allowed) |
+
+Outside the crates, `guest/glibc` holds the guest C library's patch and build, and
+`guest/shims` the three shim libraries.
