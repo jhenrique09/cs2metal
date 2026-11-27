@@ -610,11 +610,14 @@ struct Pumps {
     /// The stream the callback thread holds locked while the guest's callback
     /// runs, or 0.
     held: u64,
+    /// When the last call was handed out.
+    last: Option<std::time::Instant>,
 }
 
 static PUMPS: Mutex<Pumps> = Mutex::new(Pumps {
     list: Vec::new(),
     held: 0,
+    last: None,
 });
 static PUMPS_CHANGED: std::sync::Condvar = std::sync::Condvar::new();
 
@@ -649,6 +652,12 @@ fn lock_stream(stream: u64, lock: bool) {
 const AHEAD_MS: u64 = 40;
 /// How often the queues are looked at.
 const TICK: std::time::Duration = std::time::Duration::from_millis(5);
+/// The least time between two calls handed out. SDL's device thread calls a
+/// stream's callback once for each buffer the device takes, about every 20 ms.
+/// The game's callback does not always queue what it is asked for: it keeps its
+/// own, smaller, reserve. Asked again at once, it was called in a loop that
+/// never slept, which kept one core busy and the stream's lock contended.
+const PACE: std::time::Duration = std::time::Duration::from_millis(10);
 
 const DEFAULT_RECORDING_DEVICE: u32 = 0xffff_fffe;
 
@@ -921,14 +930,20 @@ pub(crate) fn next_callback(out: u64) -> i64 {
         PUMPS_CHANGED.notify_all();
     }
     let call = loop {
-        if let Some(call) = due(&pumps.list) {
-            break call;
+        let rest = pumps.last.map_or(std::time::Duration::ZERO, |last| {
+            PACE.saturating_sub(last.elapsed())
+        });
+        if rest.is_zero() {
+            if let Some(call) = due(&pumps.list) {
+                break call;
+            }
         }
-        pumps = match PUMPS_CHANGED.wait_timeout(pumps, TICK) {
+        pumps = match PUMPS_CHANGED.wait_timeout(pumps, rest.max(TICK)) {
             Ok((p, _)) => p,
             Err(_) => return crate::translate::EINVAL,
         };
     };
+    pumps.last = Some(std::time::Instant::now());
     // Marked held before the stream is locked, outside the pumps' lock: its
     // destruction waits meanwhile, and a thread that holds the stream's lock
     // can still reach the pumps.
@@ -1559,7 +1574,12 @@ mod tests {
         assert_eq!(call[..3], [0x1000, 9, 7]);
         assert_eq!(*LOCKS.lock().expect("locks"), [(true, 7)]);
         assert_eq!(PUMPS.lock().expect("pumps").held, 7);
+        let first = std::time::Instant::now();
         assert_eq!(next_callback(out), 0);
+        assert!(
+            first.elapsed() >= PACE - TICK,
+            "the second call waits for the pace"
+        );
         assert_eq!(
             *LOCKS.lock().expect("locks"),
             [(true, 7), (false, 7), (true, 7)]
