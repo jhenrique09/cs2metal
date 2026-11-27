@@ -95,10 +95,13 @@ the application shortcut if you ask for one.
 ~/cs2-metal/bin/run.sh -offline    # offline: bots and unsecured servers only
 ```
 
-Steam for macOS must be running and signed in. **The first start stays black for a
-few minutes** while Metal compiles the game's shaders, once; it is not stuck. To
-stop the game, quit from its menu or press Ctrl-C in the terminal: both let it
-shut itself down.
+Steam for macOS must be signed in; if it is not running, `run.sh` opens it and
+waits half a minute before it starts the game. If Steam asks for a password
+instead of signing in by itself, sign in and start the game again.
+
+**The first start stays black for a few minutes** while Metal compiles the game's
+shaders, once; it is not stuck. To stop the game, quit from its menu or press
+Ctrl-C in the terminal: both let it shut itself down.
 
 ### Online is the default, and it is at your own risk
 
@@ -119,8 +122,9 @@ it off secured servers: practice matches with bots, with no such risk.
 
 ### What `run.sh` does first
 
-| Before the game starts, `run.sh` | Turn it off with |
+| Before the game starts, `run.sh` | Change it with |
 | --- | --- |
+| Opens Steam for macOS if it is not running, and waits 30 seconds for it to sign in | `CS2METAL_STEAM_WAIT=<seconds>` |
 | Asks Steam whether there is a newer build and installs it (see [Update](#update)) | `CS2METAL_NO_UPDATE=1` |
 | On the first launch only, sets the game's video settings to its own low preset | `CS2METAL_KEEP_VIDEO_SETTINGS=1` |
 | Loads Steam's overlay (Shift+Tab) into the host | `CS2METAL_NO_OVERLAY=1` |
@@ -138,7 +142,9 @@ and write to the session's log.
 ~/cs2-metal/bin/create-shortcut.sh --offline  # a second application, which starts offline
 ```
 
-The application runs `run.sh`, so it starts the game online. Its icon is converted on your Mac from the game's own
+The application runs `run.sh`: it opens Steam if Steam is not running, updates the
+game if there is an update, and starts the game online. It shows in Spotlight,
+Launchpad, and the Dock under the game's name. Its icon is converted on your Mac from the game's own
 icon file; nothing of Valve's is shipped with cs2metal. `--steam` adds it to the
 non-Steam games of every Steam account on the Mac. Steam must be quit for that,
 because it writes its list of shortcuts when it quits; the list is copied first

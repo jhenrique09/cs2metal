@@ -129,7 +129,7 @@ both sides use the same C++ ABI. (INFERRED from the public headers; verified by 
 | Run the game's own, unmodified `libsteam_api.so` | Fabricate any answer about identity, licences, or sessions |
 | Call Valve's own `steamclient.dylib` from the owner's installation | Read, store, or forward credentials, tokens, or session files |
 | Declare app 730 the way Steam's launcher and Valve's documentation do | Modify, copy, or redistribute any Steam file, with one bounded exception: the owner may have the shortcut added to Steam's list of non-Steam games ([decision](STEAM_SHORTCUT_DECISION.md)) |
-| Report "Steam is not running" or a refused app truthfully and stop | Start, script, or automate the Steam client or its sign-in |
+| Report "Steam is not running" or a refused app truthfully and stop | Script or automate the Steam client or its sign-in. The launcher, `run.sh`, opens the Steam application when it is not running, as its icon would, and waits; it does nothing inside it |
 | Launch with `-insecure` in every automated boot and with `run.sh -offline`, keeping the game off VAC-secured servers; the launcher's default is online since 27 November 2026 ([decision](ONLINE_DEFAULT_DECISION.md)) | Touch Valve Anti-Cheat in any way |
 
 Consequences the owner should expect: while the game runs, the account shows as
@@ -142,6 +142,17 @@ game it starts. The renderer hooks the Metal layer MoltenVK presents on, and Ste
 then starts its overlay process for the game: the owner opened the overlay with
 Shift+Tab in client boot 67. It is Valve's library from the owner's installation,
 loaded from where it is; `CS2METAL_NO_OVERLAY=1` leaves it out.
+
+One more consequence, seen on 27 November 2026: **crash reports go to Valve.** The
+game sets up Steam's crash reporting through the client library, as it does on
+Linux, and under cs2metal that is the macOS client's reporter, inside the host
+process. It writes minidumps of the host process to `/tmp/dumps`, at ordinary
+starts too (its `assert_` files), and uploads them: its own log there shows one
+upload accepted that day, with a crash id, and later ones refused by the server.
+A minidump describes the process as it is: the host program, the guest's
+libraries, and the game's modules where cs2metal mapped them. The project neither
+reads nor stops these reports; anyone weighing the risk of running the game this
+way should know that Valve can receive them.
 
 ## Hypotheses and the probes that test them
 

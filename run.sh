@@ -18,6 +18,9 @@
 #
 # Before the game starts:
 #
+# - Steam. If Steam for macOS is not running it is opened, and given half a
+#   minute to sign in with the account it remembers. If it asks for a password
+#   instead, sign in and start the game again.
 # - Updates. steamcmd is asked, anonymously, which build Steam offers. If it is
 #   not the installed one, steamcmd downloads it, every game file is hashed again
 #   into the integrity baseline, and the SDL shim is checked against the new
@@ -36,6 +39,8 @@
 # - -nojoy is passed, at the owner's request; no effect of it was seen.
 #
 # Environment:
+#   CS2METAL_STEAM_WAIT=<seconds>    how long to give Steam to sign in when this
+#                                    script had to open it (default 30)
 #   CS2METAL_NO_UPDATE=1             do not ask Steam for updates
 #   CS2METAL_STEAM_LOGIN=<account>   update as that Steam account, not anonymously
 #   CS2METAL_KEEP_VIDEO_SETTINGS=1   leave the video settings alone at the first launch too
@@ -62,10 +67,23 @@ done
 [ -x "$host_bin" ] || fail "cs2metal is not installed in $bin_dir: run ./install.sh, or ./build.sh, in the checkout"
 [ -d "$game_dir/game" ] || fail "the game is not in $game_dir: run ./install.sh in the checkout"
 game_running && fail "the game is already running; quit it first"
+
+# The game talks to Steam for macOS, which must be running and signed in. If it
+# is not running it is opened here, as its icon would open it, and given time to
+# sign in; nothing here signs in or sees how Steam does. No sign of "signed in"
+# is read from Steam's files, so the wait is a fixed one.
 if ! steam_running; then
-    say "Steam for macOS is not running; opening it. Sign in, then run this again."
-    open -a Steam || true
-    exit 1
+    say "Steam for macOS is not running; opening it"
+    open -a Steam || fail "could not open Steam: install Steam for macOS and sign in once"
+    waited=0
+    until steam_running; do
+        [ "$waited" -lt 120 ] || fail "Steam did not start in two minutes; start it, sign in, and run this again"
+        sleep 1
+        waited=$((waited + 1))
+    done
+    settle="${CS2METAL_STEAM_WAIT:-30}"
+    say "waiting $settle seconds for Steam to sign in"
+    sleep "$settle"
 fi
 
 update_game() {

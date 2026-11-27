@@ -8,8 +8,9 @@
 #
 # The application is a small bundle whose program runs ~/cs2-metal/bin/run.sh, so
 # it shows in Finder, Launchpad, Spotlight, and the Dock under the game's name.
-# Like run.sh, it starts the game online; --offline makes a second application,
-# Counter-Strike 2 (offline), that starts it with -insecure.
+# Like run.sh, it opens Steam first if Steam is not running, and starts the game
+# online; --offline makes a second application, Counter-Strike 2 (offline), that
+# starts it with -insecure.
 # Its icon is converted on this Mac from the game's own icon file,
 # game/csgo/resource/game-icon.bmp in the installation: nothing of Valve's is
 # shipped with cs2metal.

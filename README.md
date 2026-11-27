@@ -70,9 +70,11 @@ updates, the shortcut, and how to remove it all.
 ~/cs2-metal/bin/run.sh +map de_dust2   # extra arguments go to the engine
 ```
 
-Steam for macOS must be running and signed in. Quit from the game's menu, or press
-Ctrl-C in the terminal. Before the game starts, `run.sh`:
+Quit from the game's menu, or press Ctrl-C in the terminal. Before the game
+starts, `run.sh`:
 
+- opens Steam for macOS if it is not running, and gives it half a minute to sign
+  in with the account it remembers;
 - asks Steam whether there is a newer build of the game, and installs it;
 - on the first launch only, sets the game's video settings to its own low preset;
 - loads Steam's own overlay into the host;
@@ -90,7 +92,9 @@ the risk the warning at the top of this page describes; read
 servers: practice matches with bots carry no such risk.
 
 `~/cs2-metal/bin/create-shortcut.sh` makes `~/Applications/Counter-Strike 2.app`,
-with the game's own icon, and with `--steam` adds it to Steam's library.
+with the game's own icon: an application for Spotlight, Launchpad, and the Dock
+that does what `run.sh` does, opening Steam first if it has to. With `--steam` it
+is also added to Steam's library.
 
 ## Where everything is
 
