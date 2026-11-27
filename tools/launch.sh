@@ -23,6 +23,11 @@
 # process, as Steam does for a game it starts, and Steam then starts its overlay
 # for the game. It draws on the Metal layer under MoltenVK.
 #
+# -nojoy is always passed, at the owner's request. In other Source games it keeps
+# the joystick system from starting. This build starts no joystick or gamepad
+# system either way (SDL is asked for video and audio only), and no effect of the
+# option was seen, in client boots 75 and 76 of 27 November 2026.
+#
 # Environment:
 #   CS2METAL_KIT    the directory with cs2-linux/ and sniper/ (default ~/cs2metal-kit)
 #   CS2METAL_NO_OVERLAY=1            start without the Steam overlay
@@ -118,4 +123,4 @@ cd "$repo"
 exec "$bin" run \
     --game-dir "$kit/cs2-linux" \
     --runtime-dir "$kit/sniper/files" \
-    -- ${mode[@]+"${mode[@]}"} -condebug ${engine_args[@]+"${engine_args[@]}"} > "$log" 2>&1
+    -- ${mode[@]+"${mode[@]}"} -condebug -nojoy ${engine_args[@]+"${engine_args[@]}"} > "$log" 2>&1
