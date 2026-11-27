@@ -96,8 +96,9 @@ order into the loader's functions, in one crossing:
 - before any `vkCmd*` on the same command buffer that is not recorded: such a
   function is handed out behind an entry that flushes first.
 
-`vkBeginCommandBuffer` gives the command buffer its stream, empty, and
-`vkResetCommandBuffer` empties it. The driver therefore sees the same commands in
+`vkBeginCommandBuffer` gives the command buffer its stream, empty,
+`vkResetCommandBuffer` empties it, and `vkFreeCommandBuffers` gives the stream up
+for the next command buffer that needs one. The driver therefore sees the same commands in
 the same order, only later, and Vulkan asks nothing of a command buffer between
 its begin and its end that could show the difference.
 

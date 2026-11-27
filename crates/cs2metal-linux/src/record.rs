@@ -59,6 +59,12 @@ static STREAMS: [AtomicPtr<Stream>; SLOTS] =
     [const { AtomicPtr::new(std::ptr::null_mut()) }; SLOTS];
 /// Serializes the making of streams; finding one takes no lock.
 static MAKING: Mutex<()> = Mutex::new(());
+/// The key of a slot whose command buffer was freed. A search goes past it,
+/// and the next command buffer that needs a slot takes it, stream and all. No
+/// handle has this value: handles are addresses.
+const FREED: u64 = 1;
+/// Command buffers that have a stream now, for the trace.
+static LIVE: AtomicUsize = AtomicUsize::new(0);
 
 /// The entry guest code calls to have a stream flushed: [`flush_host`] behind a
 /// host thunk. Zero until [`start`].
@@ -107,6 +113,9 @@ fn first_slot(cb: u64) -> usize {
 
 /// The stream of a command buffer, if it has one. Neutral.
 fn find(cb: u64) -> Option<&'static Stream> {
+    if cb <= FREED {
+        return None;
+    }
     let mut slot = first_slot(cb);
     for _ in 0..PROBES {
         let key = KEYS.get(slot)?.load(Ordering::Acquire);
@@ -138,26 +147,72 @@ pub(crate) fn begin(cb: u64) {
     let Ok(_making) = MAKING.lock() else {
         return;
     };
+    // The first slot a freed command buffer left, or else the first empty one.
+    let mut slot = first_slot(cb);
+    let mut freed = None;
+    let mut empty = None;
+    for _ in 0..PROBES {
+        match KEYS.get(slot).map(|key| key.load(Ordering::Acquire)) {
+            Some(key) if key == cb => return,
+            Some(FREED) if freed.is_none() => freed = Some(slot),
+            Some(0) => {
+                empty = Some(slot);
+                break;
+            }
+            _ => {}
+        }
+        slot = (slot + 1) & (SLOTS - 1);
+    }
+    let Some(slot) = freed.or(empty) else {
+        return;
+    };
+    let (Some(key), Some(place)) = (KEYS.get(slot), STREAMS.get(slot)) else {
+        return;
+    };
+    if place.load(Ordering::Acquire).is_null() {
+        let words = Box::leak(vec![0u64; CAPACITY].into_boxed_slice()).as_mut_ptr();
+        let stream = Box::leak(Box::new(Stream {
+            len: AtomicUsize::new(0),
+            words,
+        }));
+        place.store(stream, Ordering::Release);
+    }
+    // SAFETY: the slot's stream was stored above or when the slot was first
+    // used, and streams are never freed.
+    if let Some(stream) = unsafe { place.load(Ordering::Acquire).as_ref() } {
+        stream.len.store(0, Ordering::Relaxed);
+    }
+    key.store(cb, Ordering::Release);
+    LIVE.fetch_add(1, Ordering::Relaxed);
+}
+
+/// Gives up the stream of `cb`: the guest frees the command buffer, after which
+/// no thread may name it. Its slot, with the stream, goes to the next command
+/// buffer that needs one. Host domain.
+pub(crate) fn free(cb: u64) {
+    let Ok(_making) = MAKING.lock() else {
+        return;
+    };
     let mut slot = first_slot(cb);
     for _ in 0..PROBES {
-        let (Some(key), Some(place)) = (KEYS.get(slot), STREAMS.get(slot)) else {
+        let Some(key) = KEYS.get(slot) else {
             return;
         };
         match key.load(Ordering::Acquire) {
-            k if k == cb => return,
-            0 => {
-                let words = Box::leak(vec![0u64; CAPACITY].into_boxed_slice()).as_mut_ptr();
-                let stream = Box::leak(Box::new(Stream {
-                    len: AtomicUsize::new(0),
-                    words,
-                }));
-                place.store(stream, Ordering::Release);
-                key.store(cb, Ordering::Release);
+            k if k == cb && cb != 0 => {
+                key.store(FREED, Ordering::Release);
+                LIVE.fetch_sub(1, Ordering::Relaxed);
                 return;
             }
+            0 => return,
             _ => slot = (slot + 1) & (SLOTS - 1),
         }
     }
+}
+
+/// How many command buffers have a stream.
+pub(crate) fn live() -> usize {
+    LIVE.load(Ordering::Relaxed)
 }
 
 /// Drops what is recorded for `cb` without replaying it: the guest resets the
@@ -1447,6 +1502,38 @@ mod tests {
         (r.draw)(cb, 4, 0, 0, 0, 0);
         flush_pending(cb);
         assert_eq!(calls(), ["draw 0x700000005000 4 0 0 0 0"]);
+        take_counts();
+    }
+
+    #[test]
+    fn a_freed_command_buffer_gives_its_slot_to_the_next() {
+        let _alone = ALONE.lock().expect("alone");
+        let r = recording();
+        // Two handles that start their search at the same slot or not: either
+        // way the second finds room, and the first has no stream once freed.
+        let (first, second) = (0x7000_0000_7000u64, 0x7000_0000_8000u64);
+        let before = live();
+        begin(first);
+        assert_eq!(live(), before + 1);
+        (r.draw)(first, 1, 0, 0, 0, 0);
+        free(first);
+        assert_eq!(live(), before);
+        // Freed: its command goes to the driver, and nothing is left to replay.
+        (r.draw)(first, 2, 0, 0, 0, 0);
+        assert_eq!(calls(), ["direct draw 0x700000007000 2"]);
+        begin(second);
+        (r.draw)(second, 3, 0, 0, 0, 0);
+        flush_host(second);
+        assert_eq!(calls(), ["draw 0x700000008000 3 0 0 0 0"]);
+        // Begun again, the first handle has a stream once more.
+        begin(first);
+        (r.draw)(first, 4, 0, 0, 0, 0);
+        flush_host(first);
+        assert_eq!(calls(), ["draw 0x700000007000 4 0 0 0 0"]);
+        free(first);
+        free(second);
+        free(0x7000_0000_9000);
+        assert_eq!(live(), before);
         take_counts();
     }
 

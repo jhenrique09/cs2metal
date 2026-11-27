@@ -128,6 +128,7 @@ fn wrapper(name: &[u8]) -> Option<u64> {
         b"vkBeginCommandBuffer" if crate::record::enabled() => begin_command_buffer as *const (),
         b"vkEndCommandBuffer" if crate::record::enabled() => end_command_buffer as *const (),
         b"vkResetCommandBuffer" if crate::record::enabled() => reset_command_buffer as *const (),
+        b"vkFreeCommandBuffers" if crate::record::enabled() => free_command_buffers as *const (),
         b"vkCreateSwapchainKHR" if tracing() => create_swapchain as *const (),
         b"vkAcquireNextImageKHR" if tracing() => acquire_next_image as *const (),
         b"vkQueuePresentKHR" if tracing() => queue_present as *const (),
@@ -151,6 +152,7 @@ fn guest_function(name: &CStr, host: u64) -> u64 {
         b"vkBeginCommandBuffer" => Some(&BEGIN_COMMAND_BUFFER),
         b"vkEndCommandBuffer" => Some(&END_COMMAND_BUFFER),
         b"vkResetCommandBuffer" => Some(&RESET_COMMAND_BUFFER),
+        b"vkFreeCommandBuffers" => Some(&FREE_COMMAND_BUFFERS),
         _ => None,
     };
     if let Some(real) = real {
@@ -200,6 +202,27 @@ fn recorded_entry(name: &[u8], real: u64, bridged: u64) -> u64 {
 static BEGIN_COMMAND_BUFFER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static END_COMMAND_BUFFER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static RESET_COMMAND_BUFFER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static FREE_COMMAND_BUFFERS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// `vkFreeCommandBuffers(device, pool, count, commandBuffers)`: each command
+/// buffer gives up its stream, so that the table of streams holds only the
+/// command buffers that exist.
+extern "C" fn free_command_buffers(device: u64, pool: u64, count: u32, buffers: *const u64) {
+    let real = FREE_COMMAND_BUFFERS.load(std::sync::atomic::Ordering::Acquire);
+    if real == 0 {
+        return;
+    }
+    if !buffers.is_null() {
+        for i in 0..count as usize {
+            // SAFETY: the guest passes `count` handles.
+            crate::record::free(unsafe { *buffers.add(i) });
+        }
+    }
+    // SAFETY: the loader's vkFreeCommandBuffers.
+    let real: extern "C" fn(u64, u64, u32, *const u64) =
+        unsafe { std::mem::transmute(real as usize) };
+    real(device, pool, count, buffers);
+}
 
 /// `vkBeginCommandBuffer(commandBuffer, beginInfo)`: the command buffer gets its
 /// stream, empty.
@@ -305,14 +328,19 @@ fn calls_line(counts: &mut Vec<(String, u64)>, presents: usize) -> Option<String
 /// The report's line for what the recorder did in a period of `presents`
 /// frames: commands recorded on the guest's side, the flushes that took them
 /// across the bridge, and commands that crossed by themselves.
-fn recorded_line((recorded, flushes, direct): (u64, u64, u64), presents: usize) -> Option<String> {
+fn recorded_line(
+    (recorded, flushes, direct): (u64, u64, u64),
+    streams: usize,
+    presents: usize,
+) -> Option<String> {
     if presents == 0 || recorded + flushes + direct == 0 {
         return None;
     }
     let per = |n: u64| n as f64 / presents as f64;
     Some(format!(
         "cs2metal: vulkan commands a present: {:.0} recorded without a crossing, replayed in \
-         {:.1} flushes; {:.1} not recordable as they were",
+         {:.1} flushes; {:.1} not recordable as they were; {streams} command buffers have a \
+         stream",
         per(recorded),
         per(flushes),
         per(direct)
@@ -909,7 +937,8 @@ fn note_present() {
         if let Some(line) = calls_line(&mut take_calls(), intervals.len()) {
             eprintln!("{line}");
         }
-        if let Some(line) = recorded_line(crate::record::take_counts(), intervals.len()) {
+        let streams = crate::record::live();
+        if let Some(line) = recorded_line(crate::record::take_counts(), streams, intervals.len()) {
             eprintln!("{line}");
         }
     }
@@ -1137,6 +1166,17 @@ mod tests {
              vkCmdBindPipeline 2.5, vkQueuePresentKHR 1.0"
         );
         assert!(calls_line(&mut counts, 0).is_none());
+    }
+
+    #[test]
+    fn a_report_of_recording_says_what_crossed() {
+        assert!(recorded_line((0, 0, 0), 4, 100).is_none());
+        assert!(recorded_line((10, 1, 0), 4, 0).is_none());
+        assert_eq!(
+            recorded_line((520_000, 1800, 150), 37, 100).expect("line"),
+            "cs2metal: vulkan commands a present: 5200 recorded without a crossing, replayed in \
+             18.0 flushes; 1.5 not recordable as they were; 37 command buffers have a stream"
+        );
     }
 
     #[test]
