@@ -24,8 +24,8 @@ to be the first to run those, and report what happens.
 
 ## What you need
 
-- An Apple silicon Mac on macOS 26 or newer, with about 80 GB free. The download is
-  about 60 GB and takes 71 GB on disk.
+- An Apple silicon Mac with about 80 GB free: the download is about 60 GB and
+  takes 71 GB on disk. Everything here was run on macOS 27 only.
 - A Steam account. Use the one the [policy](ANTI_CHEAT_AND_INTEGRITY_POLICY.md)
   allows: a secondary account.
 
@@ -95,8 +95,9 @@ the application shortcut if you ask for one.
 ```
 
 Steam for macOS must be running and signed in. The game starts offline, with
-`-insecure`. To stop it, quit from its menu or press Ctrl-C in the terminal: both
-let the game shut itself down.
+`-insecure`. **The first start stays black for a few minutes** while Metal
+compiles the game's shaders, once; it is not stuck. To stop the game, quit from
+its menu or press Ctrl-C in the terminal: both let it shut itself down.
 
 | Before the game starts, `run.sh` | Turn it off with |
 | --- | --- |
@@ -208,10 +209,12 @@ glibc source. Two things outside it are left: the game's own settings in Steam's
   steamcmd repair it and record the baseline again:
   `~/cs2-metal/bin/run.sh` does both when Steam offers a different build; otherwise
   run `./install.sh`, which records a baseline when the old one does not match.
-- **A long black screen at start.** The very first start, and the first after
-  `build.sh` installed a new host program or after the shader caches were lost,
-  compiles the game's shaders for Metal again and can take two minutes. Let it
-  finish: later starts take seconds. Do not force-quit the game while it does.
+- **A long black screen at the first start.** The very first start compiles the
+  game's shaders for Metal before the menu appears: about four minutes on an M1
+  Max on 27 November 2026, on a black screen, with macOS's shader compiler busy
+  and the game's log standing still. Let it finish: later starts take seconds.
+  The same happens again if the shader caches are lost, which a force-quit game
+  has caused here, so quit from the menu or with Ctrl-C.
 - **Stutters in the first matches.** Each kind of scene is compiled the first time
   it is drawn. They fade as you play.
 - **To report a problem**, attach the session's log from `~/cs2-metal/logs/`, taken

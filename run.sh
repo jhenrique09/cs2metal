@@ -117,6 +117,8 @@ device_ids() {
 
 first_launch="$data_dir/first-launch"
 if [ ! -e "$first_launch" ]; then
+    say "first launch: the screen stays black for a few minutes while the game's"
+    say "shaders are compiled for Metal, once. It is not stuck; let it finish."
     preset=0
     if [ "${CS2METAL_KEEP_VIDEO_SETTINGS:-0}" != 1 ]; then
         say "first launch: starting from the game's low video preset"

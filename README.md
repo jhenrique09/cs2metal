@@ -26,6 +26,8 @@ inside one macOS process. No Wine, no virtual machine, no modified game file.
 
 What does not, yet:
 
+- **The first start takes a few minutes on a black screen**, while Metal compiles
+  the game's shaders, once. Later starts take seconds.
 - **Stutters the first time each kind of scene is drawn.** Linux players get their
   shaders compiled ahead of time by Steam; here each one is compiled when first
   used. They fade as you play and return, less, in each new session.
