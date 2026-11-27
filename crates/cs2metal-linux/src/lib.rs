@@ -13,6 +13,7 @@ mod epoll;
 mod fds;
 mod mmap;
 mod more;
+mod net;
 mod paths;
 mod steam;
 mod syscall;
