@@ -3,7 +3,7 @@ use cs2metal_elf::{Elf, FunctionRange, executable_sections, unwind_ranges};
 use iced_x86::{Decoder, DecoderOptions, Instruction};
 
 use crate::discover::{Discoverer, Region};
-use crate::fs::{access, prefix_located};
+use crate::fs::{access, prefix_offset};
 use crate::{ModuleScan, TlsModels};
 
 const R_X86_64_DTPMOD64: u32 = 16;
@@ -127,10 +127,14 @@ pub fn scan_module(data: &[u8], elf: &Elf) -> ModuleScan {
         for (start, end) in clip_and_merge(&ranges, lo, hi) {
             scan.covered_bytes += end - start;
             let (accesses, rewritable) = (&mut scan.fs_accesses, &mut scan.rewritable);
+            let sites = &mut scan.rewrite_sites;
             scan.decode_failures += discoverer.unwind_range(start, end, |i, bytes| {
                 if let Some(kind) = access(i) {
                     *accesses.entry(kind).or_default() += 1;
-                    *rewritable += u64::from(prefix_located(bytes));
+                    if let Some(p) = prefix_offset(bytes) {
+                        *rewritable += 1;
+                        sites.push(i.ip() + p as u64);
+                    }
                 }
             });
         }
@@ -146,6 +150,8 @@ pub fn scan_module(data: &[u8], elf: &Elf) -> ModuleScan {
             sweep(&region.bytes[at], start, &discovery.data_starts, &mut scan);
         }
     }
+    scan.rewrite_sites.extend(&discovery.sites);
+    scan.rewrite_sites.sort_unstable();
     scan.discovery = discovery;
     scan
 }

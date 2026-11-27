@@ -151,6 +151,10 @@ pub struct ModuleScan {
     /// accepted code loads with `lea` and that does not decode as code: data the
     /// code refers to, such as tables kept in `.text`.
     pub data_fs: BTreeMap<FsAccess, u64>,
+    /// Virtual addresses of every located `0x64` prefix byte in proven code,
+    /// sorted: what T-001 rewrites. Not serialized; reports carry counts.
+    #[serde(skip)]
+    pub rewrite_sites: Vec<u64>,
     /// Instructions inside covered ranges that do not decode.
     pub decode_failures: u64,
     pub tls: TlsModels,

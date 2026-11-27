@@ -28,7 +28,7 @@ use iced_x86::{Code, Decoder, DecoderOptions, FlowControl, Instruction, Mnemonic
 use serde::Serialize;
 
 use crate::FsAccess;
-use crate::fs::{access, prefix_located};
+use crate::fs::{access, prefix_offset};
 
 /// Where a discovery path started.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
@@ -98,6 +98,9 @@ pub struct Discovery {
     /// with `lea` and that does not decode as code. Sorted; not serialized.
     #[serde(skip)]
     pub data_starts: Vec<u64>,
+    /// Addresses of the located prefix bytes in discovered code. Not serialized.
+    #[serde(skip)]
+    pub sites: Vec<u64>,
 }
 
 impl Discovery {
@@ -194,7 +197,8 @@ struct Component {
     marks: Vec<(usize, usize, usize)>,
     bytes: u64,
     instructions: u64,
-    fs: Vec<(FsAccess, bool)>,
+    /// Each `fs` access and the address of its prefix byte, when located.
+    fs: Vec<(FsAccess, Option<u64>)>,
     noreturn_calls: u64,
     conflicts: u64,
     invalid: u64,
@@ -449,7 +453,8 @@ impl<'a, 'e> Discoverer<'a, 'e> {
                 c.bytes += instruction.len() as u64;
                 c.instructions += 1;
                 if let Some(kind) = kind {
-                    c.fs.push((kind, prefix_located(&bytes[pos..end])));
+                    let site = prefix_offset(&bytes[pos..end]).map(|p| instruction.ip() + p as u64);
+                    c.fs.push((kind, site));
                 }
                 c.address_taken.extend(address_taken(&instruction));
 
@@ -508,9 +513,10 @@ impl<'a, 'e> Discoverer<'a, 'e> {
         out.noreturn_calls += c.noreturn_calls;
         out.conflicts += c.conflicts;
         out.invalid += c.invalid;
-        for (kind, located) in c.fs {
+        for (kind, site) in c.fs {
             *out.fs_accesses.entry(kind).or_default() += 1;
-            out.rewritable += u64::from(located);
+            out.rewritable += u64::from(site.is_some());
+            out.sites.extend(site);
         }
         self.pending.extend(c.address_taken);
     }

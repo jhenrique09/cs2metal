@@ -185,3 +185,30 @@ fn a_call_to_an_ordinary_import_falls_through() {
     assert_eq!(m.discovery.noreturn_calls, 0);
     assert_found_one_thread_pointer_read(&m);
 }
+
+#[test]
+fn lists_the_address_of_every_prefix_byte_to_rewrite() {
+    let mut code = Vec::new();
+    call(&mut code, 0x10);
+    code.extend([0x66, 0x64, 0x8b, 0x00]); // mov ax, fs:[rax]: the prefix is second
+    code.push(RET);
+    pad_to(&mut code, 0x10);
+    hidden_function(&mut code);
+    let bytes = ElfBuilder::shared_object("libsites.so")
+        .code(&code, &[(0, 10)])
+        .build();
+    let elf = cs2metal_elf::parse(&bytes).expect("valid object");
+    let text = elf
+        .segments
+        .iter()
+        .find(|s| s.executable())
+        .expect("code")
+        .vaddr;
+    let m = scan_module(&bytes, &elf);
+    let relative: Vec<_> = m.rewrite_sites.iter().map(|a| a - text).collect();
+    assert_eq!(relative, [6, 0x10], "unwind-described, then discovered");
+    assert_eq!(
+        m.rewrite_sites.len() as u64,
+        m.rewritable + m.discovery.rewritable
+    );
+}

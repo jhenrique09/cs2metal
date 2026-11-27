@@ -37,9 +37,16 @@ fn classify(instruction: &Instruction) -> FsAccess {
     }
 }
 
-/// Whether the instruction's bytes carry exactly one `0x64` among their leading
-/// legacy prefixes, so that changing it to `0x65` changes nothing else.
-pub(crate) fn prefix_located(bytes: &[u8]) -> bool {
-    let prefixes = bytes.iter().take_while(|&&b| is_legacy_prefix(b));
-    prefixes.filter(|&&b| b == FS_PREFIX).count() == 1
+/// The position of the `0x64` prefix byte when the instruction's bytes carry
+/// exactly one among their leading legacy prefixes, so that changing it to `0x65`
+/// changes nothing else.
+pub(crate) fn prefix_offset(bytes: &[u8]) -> Option<usize> {
+    let prefixes = bytes.iter().take_while(|&&b| is_legacy_prefix(b)).count();
+    let mut found = bytes[..prefixes]
+        .iter()
+        .enumerate()
+        .filter(|&(_, &b)| b == FS_PREFIX)
+        .map(|(i, _)| i);
+    let first = found.next();
+    first.filter(|_| found.next().is_none())
 }
