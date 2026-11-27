@@ -23,6 +23,7 @@ mod more;
 mod net;
 mod paths;
 mod procfs;
+mod record;
 mod sdl;
 mod steam;
 mod syscall;

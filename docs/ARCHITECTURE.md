@@ -122,8 +122,9 @@ with its decision record and the counter the host logs at load time.
   the host domain for the call and back on return. A *neutral* function touches no
   macOS thread data and is called directly: it reads nothing through GS, takes no
   lock of libSystem, allocates nothing, and cannot panic. The neutral functions
-  are `__tls_get_addr`, `__stack_chk_fail`, the clocks behind the vDSO, and the
-  system call entry's fast handler. That a
+  are `__tls_get_addr`, `__stack_chk_fail`, the clocks behind the vDSO, the
+  system call entry's fast handler, and the functions that record Vulkan
+  commands ([Vulkan bridge](VULKAN_BRIDGE.md)). That a
   function is neutral is tested, not assumed: `probe_neutral` runs it with GS at
   a block of poison words, which following stops the process and writing is
   reported.
@@ -226,7 +227,7 @@ or the Linux kernel. Their imports bind instead to macOS libraries with the same
 | Linux library | Host replacement | Notes |
 | --- | --- | --- |
 | `libSDL3.so.0` | macOS SDL3, x86-64 build | Windows, input, audio, and Vulkan surface creation. The guest asks SDL for Vulkan instance extensions and receives the Metal surface ones. |
-| `libvulkan.so.1` | Vulkan loader for macOS, x86-64 build | The driver is MoltenVK: the only one that loads in an x86-64 process (Q-6, answered on 27 November 2026 by the [Vulkan driver measurement](VULKAN_DRIVER_MEASUREMENT_2026-11-27.md)). |
+| `libvulkan.so.1` | Vulkan loader for macOS, x86-64 build | Commands recorded into a command buffer do not cross the bridge one by one: they are recorded on the guest's side and replayed in one crossing. The driver is MoltenVK: the only one that loads in an x86-64 process (Q-6, answered on 27 November 2026 by the [Vulkan driver measurement](VULKAN_DRIVER_MEASUREMENT_2026-11-27.md)). |
 | `steamclient.so` | `steamclient.dylib` of the owner's macOS Steam installation | The game's own `libsteam_api.so` stays guest code; only the client library it loads is bridged, with proxied interface objects. See the [Steam bridge design](STEAM_BRIDGE_DESIGN.md). |
 
 The C++ runtime is the opposite case: Linux libstdc++ and libgcc_s are loaded **as

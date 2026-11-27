@@ -2,8 +2,10 @@
 
 ## Status
 
-Design and first implementation for roadmap step F2, 27 November 2026. Describes
-`guest/shims/libvulkan.so.1.c` and `crates/cs2metal-linux/src/vulkan.rs`.
+Design and first implementation for roadmap step F2, 27 November 2026, extended the
+same day with the recording of commands on the guest's side. Describes
+`guest/shims/libvulkan.so.1.c`, `crates/cs2metal-linux/src/vulkan.rs`, and
+`crates/cs2metal-linux/src/record.rs`.
 
 ## What the renderer needs
 
@@ -50,7 +52,9 @@ the 99th percentile, the longest, and how many took more than twice the median.
 A present more than 250 ms after the one before is named on its own, with the time
 of day, to set beside the game's console log. With each pacing report it names the
 Vulkan functions the guest called most in the period, as calls a present: every
-entry it hands the guest is put behind one that counts.
+entry it hands the guest is put behind one that counts. Counting costs a locked
+increment a call, so `CS2METAL_VULKAN_TRACE=pacing` leaves it out and keeps only
+the reports on presents, for measuring the pace itself.
 `MVK_CONFIG_SHOULD_MAXIMIZE_CONCURRENT_COMPILATION` is set to 1 in the host
 environment unless the owner sets it: MoltenVK then lets Metal compile several
 shaders at once, where by default it compiles one at a time, while the renderer
@@ -73,6 +77,49 @@ tried beside it and writes nothing to the console log in this build.
 them from what `vkEnumerateDeviceExtensionProperties` reports to the game, to test
 whether the renderer works better without one, such as `VK_KHR_present_wait`.
 
+### Commands recorded on the guest's side
+
+A Vulkan call through a host thunk costs two GS switches, half a microsecond for
+the pair. The renderer makes 8,200 to 9,000 calls a present in a match (client
+boot 87 of 27 November 2026, counted by the trace), and three quarters of them
+are `vkCmd*`: commands recorded into a command buffer, which return nothing and
+take effect only when the buffer is executed.
+
+For those the guest is given a function that does not cross the bridge. It is
+neutral code (`crates/cs2metal-linux/src/record.rs`): it runs in the guest's
+domain and writes the command into a stream kept for the command buffer, with a
+copy of everything its arguments point at. The stream is *flushed*, replayed in
+order into the loader's functions, in one crossing:
+
+- when the guest ends the command buffer (`vkEndCommandBuffer` is wrapped);
+- when the stream is full, at 64 KiB, about two thousand commands;
+- before any `vkCmd*` on the same command buffer that is not recorded: such a
+  function is handed out behind an entry that flushes first.
+
+`vkBeginCommandBuffer` gives the command buffer its stream, empty, and
+`vkResetCommandBuffer` empties it. The driver therefore sees the same commands in
+the same order, only later, and Vulkan asks nothing of a command buffer between
+its begin and its end that could show the difference.
+
+| Recorded | How |
+| --- | --- |
+| Commands whose arguments are all integers and handles: binding a pipeline or an index buffer, the draws and dispatches, the stencil state, the dynamic state of `VK_EXT_extended_dynamic_state` under its core and `EXT` names, queries, `vkCmdFillBuffer`, `vkCmdEndRendering` | The argument registers, as they came |
+| `vkCmdBindVertexBuffers`, `vkCmdBindDescriptorSets`, `vkCmdPushConstants`, `vkCmdCopyBuffer`, viewports and scissors, `vkCmdSetBlendConstants`, `vkCmdSetDepthBias` | The arguments and a copy of each array. `vkCmdBindDescriptorSets` is replayed through the wrapper that leaves null sets out |
+| `vkCmdBeginRendering`, `vkCmdPipelineBarrier2` | The structure and the arrays it names, copied behind it, with the pointers kept as offsets until the replay. A structure with a `pNext` chain is not recorded: the chain is not copied |
+
+A command that cannot be recorded as it is goes to the driver directly, after a
+flush: one with a `pNext` chain, one for a command buffer that has no stream (the
+table holds 4,096), one larger than a stream. That is slower and never out of
+order.
+
+What still crosses, call by call, is everything that is not a command: above all
+the allocation of descriptor sets and their update from a template, a thousand
+of each a present, which return or change objects at once.
+
+`CS2METAL_NO_VULKAN_RECORD=1` gives the guest the bridged functions, as before.
+With the trace on, each report says how many commands were recorded a present,
+in how many flushes, and how many were not recordable.
+
 ## Validation
 
 A test creates an instance and a device through the wrappers on the owner's
@@ -81,8 +128,10 @@ does. It is skipped where no Vulkan SDK is installed.
 
 ## What remains
 
-- Every Vulkan call crosses the bridge, with two GS switches. That is cheap
-  enough for the first frame; recording command buffers at the game's rate may
-  need cheaper crossings later.
+- A quarter of the renderer's Vulkan calls still cross the bridge one by one,
+  with two GS switches each: mostly `vkAllocateDescriptorSets` and
+  `vkUpdateDescriptorSetWithTemplate`, about a thousand of each a present.
+  Deferring the update would need the layout of each update template; the
+  allocation returns a handle and cannot be deferred at all.
 - `vkGetPhysicalDeviceFeatures2` and related queries answer with MoltenVK's
   features. Whether the renderer accepts them is what F2's gate shows.

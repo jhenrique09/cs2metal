@@ -100,3 +100,97 @@ fn a_counted_entry_counts_and_passes_the_call_on() {
         assert_eq!(COUNTED_CALLS.load(Ordering::Relaxed), round);
     }
 }
+
+static BEFORE_SAW: AtomicU64 = AtomicU64::new(0);
+
+/// Called before the entry: it records its argument and then ruins every
+/// register a call may ruin, the vector ones too.
+extern "C" fn before(first: u64) {
+    BEFORE_SAW.store(first, Ordering::Relaxed);
+    // SAFETY: clobbers only registers the C ABI lets a function change, all
+    // declared.
+    unsafe {
+        core::arch::asm!(
+            "pxor xmm0, xmm0", "pxor xmm1, xmm1", "pxor xmm2, xmm2", "pxor xmm3, xmm3",
+            "pxor xmm4, xmm4", "pxor xmm5, xmm5", "pxor xmm6, xmm6", "pxor xmm7, xmm7",
+            "mov rdi, -1", "mov rsi, -1", "mov rdx, -1", "mov rcx, -1", "mov r8, -1",
+            "mov r9, -1", "mov rax, -1",
+            out("xmm0") _, out("xmm1") _, out("xmm2") _, out("xmm3") _,
+            out("xmm4") _, out("xmm5") _, out("xmm6") _, out("xmm7") _,
+            out("rdi") _, out("rsi") _, out("rdx") _, out("rcx") _, out("r8") _,
+            out("r9") _, out("rax") _,
+            options(nostack),
+        );
+    }
+}
+
+/// Six integers, eight floats, and two integers on the stack.
+#[allow(clippy::too_many_arguments)]
+extern "C" fn mixed(
+    a: u64,
+    b: u64,
+    c: u64,
+    d: u64,
+    e: u64,
+    f: u64,
+    x0: f64,
+    x1: f64,
+    x2: f64,
+    x3: f64,
+    x4: f64,
+    x5: f64,
+    x6: f64,
+    x7: f64,
+    g: u64,
+    h: u64,
+) -> f64 {
+    (a + 2 * b + 3 * c + 4 * d + 5 * e + 6 * f + 7 * g + 8 * h) as f64
+        + x0
+        + 2.0 * x1
+        + 3.0 * x2
+        + 4.0 * x3
+        + 5.0 * x4
+        + 6.0 * x5
+        + 7.0 * x6
+        + 8.0 * x7
+}
+
+type Mixed = extern "C" fn(
+    u64,
+    u64,
+    u64,
+    u64,
+    u64,
+    u64,
+    f64,
+    f64,
+    f64,
+    f64,
+    f64,
+    f64,
+    f64,
+    f64,
+    u64,
+    u64,
+) -> f64;
+
+/// A preceded entry calls its function with the first argument, and the entry
+/// behind it then sees every argument untouched: in the integer registers, in
+/// the vector registers, and on the stack.
+#[test]
+fn a_preceded_entry_keeps_every_argument() {
+    let mut bridge = Bridge::new().expect("bridge");
+    let stub = bridge
+        .preceded(before as *const () as u64, mixed as *const () as u64)
+        .expect("preceded stub");
+    // SAFETY: the stub runs `before` and jumps to `mixed`, whose type this is.
+    let through: Mixed = unsafe { std::mem::transmute(stub as usize) };
+    let got = through(
+        11, 2, 3, 4, 5, 6, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 7, 8,
+    );
+    let plain = mixed(
+        11, 2, 3, 4, 5, 6, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 7, 8,
+    );
+    assert_eq!(got, plain);
+    assert_eq!(BEFORE_SAW.load(Ordering::Relaxed), 11);
+}

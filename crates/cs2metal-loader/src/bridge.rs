@@ -942,6 +942,37 @@ impl Bridge {
         self.place(&code)
     }
 
+    /// An entry that first calls `before` with the call's first argument, then
+    /// goes on to `entry` as if nothing had happened: the six integer argument
+    /// registers, `rax`, the eight vector argument registers, and the stack are
+    /// as the caller left them. `before` is called in the caller's domain, so
+    /// from guest code it must be neutral, or cross the bridge itself.
+    pub fn preceded(&mut self, before: u64, entry: u64) -> Result<u64> {
+        let mut code = Vec::with_capacity(160);
+        // push rdi, rsi, rdx, rcx, r8, r9, rax: seven words, which with the
+        // return address leave the stack aligned for the call.
+        code.extend([0x57, 0x56, 0x52, 0x51, 0x41, 0x50, 0x41, 0x51, 0x50]);
+        code.extend([0x48, 0x81, 0xec, 0x80, 0, 0, 0]); // sub rsp, 128
+        for register in 0..8u8 {
+            // movdqu [rsp + 16 * register], xmm<register>
+            code.extend([0xf3, 0x0f, 0x7f, 0x44 | register << 3, 0x24, 16 * register]);
+        }
+        code.extend([0x48, 0xb8]); // movabs rax, before
+        code.extend(before.to_le_bytes());
+        code.extend([0xff, 0xd0]); // call rax
+        for register in 0..8u8 {
+            // movdqu xmm<register>, [rsp + 16 * register]
+            code.extend([0xf3, 0x0f, 0x6f, 0x44 | register << 3, 0x24, 16 * register]);
+        }
+        code.extend([0x48, 0x81, 0xc4, 0x80, 0, 0, 0]); // add rsp, 128
+        // pop rax, r9, r8, rcx, rdx, rsi, rdi
+        code.extend([0x58, 0x41, 0x59, 0x41, 0x58, 0x59, 0x5a, 0x5e, 0x5f]);
+        code.extend([0x49, 0xba]); // movabs r10, entry
+        code.extend(entry.to_le_bytes());
+        code.extend([0x41, 0xff, 0xe2]); // jmp r10
+        self.place(&code)
+    }
+
     /// As [`Bridge::host`], with the registered return fixup applied to what the
     /// host function returns.
     pub fn host_fixed(&mut self, target: u64) -> Result<u64> {

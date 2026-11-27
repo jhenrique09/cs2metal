@@ -60,6 +60,16 @@ fn tracing() -> bool {
     *ON.get_or_init(|| std::env::var_os("CS2METAL_VULKAN_TRACE").is_some())
 }
 
+/// Whether the trace counts calls: it does unless `CS2METAL_VULKAN_TRACE` is
+/// `pacing`, which keeps the reports on presents and leaves every other entry
+/// as it is without a trace, for measuring the pace itself.
+fn counting() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var_os("CS2METAL_VULKAN_TRACE").is_some_and(|value| value != "pacing")
+    })
+}
+
 fn host_entry(f: u64) -> u64 {
     if f == 0 {
         return 0;
@@ -115,6 +125,9 @@ fn wrapper(name: &[u8]) -> Option<u64> {
         b"vkCreateDebugReportCallbackEXT" => create_debug_report_callback as *const (),
         b"vkEnumerateDeviceExtensionProperties" => enumerate_device_extensions as *const (),
         b"vkCmdBindDescriptorSets" => bind_descriptor_sets as *const (),
+        b"vkBeginCommandBuffer" if crate::record::enabled() => begin_command_buffer as *const (),
+        b"vkEndCommandBuffer" if crate::record::enabled() => end_command_buffer as *const (),
+        b"vkResetCommandBuffer" if crate::record::enabled() => reset_command_buffer as *const (),
         b"vkCreateSwapchainKHR" if tracing() => create_swapchain as *const (),
         b"vkAcquireNextImageKHR" if tracing() => acquire_next_image as *const (),
         b"vkQueuePresentKHR" if tracing() => queue_present as *const (),
@@ -133,23 +146,98 @@ fn guest_function(name: &CStr, host: u64) -> u64 {
     if host == 0 && !always {
         return 0;
     }
-    if name.to_bytes() == b"vkCmdBindDescriptorSets" {
-        BIND_DESCRIPTOR_SETS.store(host, std::sync::atomic::Ordering::Release);
+    let real = match name.to_bytes() {
+        b"vkCmdBindDescriptorSets" => Some(&BIND_DESCRIPTOR_SETS),
+        b"vkBeginCommandBuffer" => Some(&BEGIN_COMMAND_BUFFER),
+        b"vkEndCommandBuffer" => Some(&END_COMMAND_BUFFER),
+        b"vkResetCommandBuffer" => Some(&RESET_COMMAND_BUFFER),
+        _ => None,
+    };
+    if let Some(real) = real {
+        real.store(host, std::sync::atomic::Ordering::Release);
     }
-    if !tracing() {
-        return match wrapper(name.to_bytes()) {
-            Some(w) => host_entry(w),
-            None => host_entry(host),
-        };
-    }
-    let traced = (host != 0)
+    let adjusted = wrapper(name.to_bytes());
+    let traced = (tracing() && host != 0)
         .then(|| traced_wrapper(name.to_bytes(), host))
         .flatten();
-    let entry = match traced.or_else(|| wrapper(name.to_bytes())) {
+    let bridged = match traced.or(adjusted) {
         Some(w) => host_entry(w),
         None => host_entry(host),
     };
-    counted_entry(name, entry)
+    let entry = recorded_entry(name.to_bytes(), adjusted.unwrap_or(host), bridged);
+    if counting() {
+        return counted_entry(name, entry);
+    }
+    entry
+}
+
+/// What the guest gets for a command recorded into a command buffer, where
+/// commands are recorded on its side of the bridge (see [`crate::record`]):
+/// the recording function for one that is recorded, and for any other the
+/// bridged entry behind a flush of what was recorded before it. `real` is the
+/// host function a replay calls, `bridged` the entry the guest would have been
+/// given.
+fn recorded_entry(name: &[u8], real: u64, bridged: u64) -> u64 {
+    if !crate::record::enabled() || !crate::record::is_command(name) || bridged == 0 {
+        return bridged;
+    }
+    if let Some(recording) = crate::record::command(name, real, bridged) {
+        return recording;
+    }
+    let before = crate::record::flush_pending as *const () as u64;
+    STATE
+        .lock()
+        .ok()
+        .and_then(|mut s| {
+            s.as_mut()
+                .and_then(|s| s.bridge.preceded(before, bridged).ok())
+        })
+        .unwrap_or(bridged)
+}
+
+/// The loader's functions that begin, end, and reset a command buffer, recorded
+/// when the guest asks for them.
+static BEGIN_COMMAND_BUFFER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static END_COMMAND_BUFFER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static RESET_COMMAND_BUFFER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// `vkBeginCommandBuffer(commandBuffer, beginInfo)`: the command buffer gets its
+/// stream, empty.
+extern "C" fn begin_command_buffer(command_buffer: u64, info: u64) -> i32 {
+    let real = BEGIN_COMMAND_BUFFER.load(std::sync::atomic::Ordering::Acquire);
+    if real == 0 {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    crate::record::begin(command_buffer);
+    // SAFETY: the loader's vkBeginCommandBuffer.
+    let real: extern "C" fn(u64, u64) -> i32 = unsafe { std::mem::transmute(real as usize) };
+    real(command_buffer, info)
+}
+
+/// `vkEndCommandBuffer(commandBuffer)`: what was recorded reaches the driver
+/// here, in order, before the end itself.
+extern "C" fn end_command_buffer(command_buffer: u64) -> i32 {
+    let real = END_COMMAND_BUFFER.load(std::sync::atomic::Ordering::Acquire);
+    if real == 0 {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    crate::record::flush_host(command_buffer);
+    // SAFETY: the loader's vkEndCommandBuffer.
+    let real: extern "C" fn(u64) -> i32 = unsafe { std::mem::transmute(real as usize) };
+    real(command_buffer)
+}
+
+/// `vkResetCommandBuffer(commandBuffer, flags)`: what was recorded is dropped,
+/// as the driver drops its own.
+extern "C" fn reset_command_buffer(command_buffer: u64, flags: u32) -> i32 {
+    let real = RESET_COMMAND_BUFFER.load(std::sync::atomic::Ordering::Acquire);
+    if real == 0 {
+        return VK_ERROR_INITIALIZATION_FAILED;
+    }
+    crate::record::discard(command_buffer);
+    // SAFETY: the loader's vkResetCommandBuffer.
+    let real: extern "C" fn(u64, u32) -> i32 = unsafe { std::mem::transmute(real as usize) };
+    real(command_buffer, flags)
 }
 
 /// The calls the guest made of each Vulkan function since the last report, for
@@ -211,6 +299,23 @@ fn calls_line(counts: &mut Vec<(String, u64)>, presents: usize) -> Option<String
         "cs2metal: vulkan calls a present: {:.0} in all, of {} functions: {named}",
         per(total),
         counts.len()
+    ))
+}
+
+/// The report's line for what the recorder did in a period of `presents`
+/// frames: commands recorded on the guest's side, the flushes that took them
+/// across the bridge, and commands that crossed by themselves.
+fn recorded_line((recorded, flushes, direct): (u64, u64, u64), presents: usize) -> Option<String> {
+    if presents == 0 || recorded + flushes + direct == 0 {
+        return None;
+    }
+    let per = |n: u64| n as f64 / presents as f64;
+    Some(format!(
+        "cs2metal: vulkan commands a present: {:.0} recorded without a crossing, replayed in \
+         {:.1} flushes; {:.1} not recordable as they were",
+        per(recorded),
+        per(flushes),
+        per(direct)
     ))
 }
 
@@ -804,6 +909,9 @@ fn note_present() {
         if let Some(line) = calls_line(&mut take_calls(), intervals.len()) {
             eprintln!("{line}");
         }
+        if let Some(line) = recorded_line(crate::record::take_counts(), intervals.len()) {
+            eprintln!("{line}");
+        }
     }
 }
 
@@ -975,6 +1083,13 @@ pub(crate) fn bind(table: u64, names: u64, count: u64) -> i64 {
             get_instance_proc_addr: gipa,
             get_device_proc_addr: gdpa,
         });
+    }
+    if crate::record::enabled() {
+        // Guest code flushes a command buffer's stream through this entry.
+        crate::record::start(
+            host_entry(crate::record::flush_host as *const () as u64),
+            counting(),
+        );
     }
     for i in 0..count {
         // SAFETY: the shim passes `count` string pointers and a table as long.
