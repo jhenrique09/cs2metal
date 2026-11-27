@@ -897,8 +897,49 @@ extern "C" fn minimize_window(_window: u64) -> bool {
     true
 }
 
-/// `SDL_CreateWindowWithProperties(props)`: the window, raised and given the focus,
-/// since the process does not come to the front by itself.
+/// The window property the game's tier-0 module reads as a window's operating
+/// system handle, unless SDL's video driver is Wayland.
+const X11_WINDOW: &CStr = c"SDL.window.x11.window";
+
+/// Gives `window` the X11 window number the game looks for: its SDL window id.
+///
+/// The game keeps its windows by that handle. Its input system asks, for each
+/// handle it was given, for the window again, and then for relative mouse mode
+/// or text input on it. Host SDL's video driver is Cocoa, which sets no such
+/// property: the handle read as zero, the window as null, and those calls
+/// failed, so the pointer stayed visible and free in a match and nothing could
+/// be typed into the game's console. Nothing else in the game reads the
+/// number, and nothing talks to an X server with it.
+fn name_window(window: u64) {
+    let (properties, id, set) = (
+        real("SDL_GetWindowProperties"),
+        real("SDL_GetWindowID"),
+        real("SDL_SetNumberProperty"),
+    );
+    if window == 0 || properties == 0 || id == 0 || set == 0 {
+        return;
+    }
+    // SAFETY: the host library's functions of these names.
+    let (properties, id, set) = unsafe {
+        (
+            std::mem::transmute::<usize, extern "C" fn(u64) -> u32>(properties),
+            std::mem::transmute::<usize, extern "C" fn(u64) -> u32>(id),
+            std::mem::transmute::<usize, extern "C" fn(u32, *const c_char, i64) -> bool>(set),
+        )
+    };
+    let named = set(
+        properties(window),
+        X11_WINDOW.as_ptr(),
+        i64::from(id(window)),
+    );
+    if !named {
+        eprintln!("cs2metal: the game's window could not be given its X11 number");
+    }
+}
+
+/// `SDL_CreateWindowWithProperties(props)`: the window, named as the game will
+/// look for it, then raised and given the focus, since the process does not come
+/// to the front by itself.
 extern "C" fn create_window_with_properties(props: u32) -> u64 {
     let f = real("SDL_CreateWindowWithProperties");
     if f == 0 {
@@ -907,6 +948,7 @@ extern "C" fn create_window_with_properties(props: u32) -> u64 {
     // SAFETY: the host library's SDL_CreateWindowWithProperties.
     let f: extern "C" fn(u32) -> u64 = unsafe { std::mem::transmute(f) };
     let window = f(props);
+    name_window(window);
     WINDOW.store(window, std::sync::atomic::Ordering::Relaxed);
     let raise = real("SDL_RaiseWindow");
     if window != 0 && raise != 0 {
@@ -1208,6 +1250,15 @@ mod tests {
                 "SDL_GetAudioStreamAvailable",
                 available as *const () as usize,
             ),
+            (
+                "SDL_GetWindowProperties",
+                window_properties as *const () as usize,
+            ),
+            ("SDL_GetWindowID", window_id as *const () as usize),
+            (
+                "SDL_SetNumberProperty",
+                set_number_property as *const () as usize,
+            ),
             ("SDL_GetAudioStreamDevice", device as *const () as usize),
             ("SDL_AudioDevicePaused", device_paused as *const () as usize),
             ("SDL_LockAudioStream", lock as *const () as usize),
@@ -1255,6 +1306,46 @@ mod tests {
         assert_eq!(LOCKS.lock().expect("locks").last(), Some(&(false, 7)));
         let pumps = PUMPS.lock().expect("pumps");
         assert!(pumps.list.is_empty() && pumps.held == 0);
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    static NUMBERS: Mutex<Vec<(u32, String, i64)>> = Mutex::new(Vec::new());
+
+    #[cfg(target_arch = "x86_64")]
+    extern "C" fn window_properties(window: u64) -> u32 {
+        window as u32 + 100
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    extern "C" fn window_id(window: u64) -> u32 {
+        window as u32 + 1
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    extern "C" fn set_number_property(properties: u32, name: *const c_char, value: i64) -> bool {
+        // SAFETY: the bridge passes a C string.
+        let name = unsafe { CStr::from_ptr(name) }
+            .to_string_lossy()
+            .into_owned();
+        NUMBERS
+            .lock()
+            .expect("numbers")
+            .push((properties, name, value));
+        true
+    }
+
+    /// The game finds its window again by the X11 window number, which host
+    /// SDL does not set on a Mac.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn a_window_gets_the_x11_number_the_game_looks_for() {
+        install_fakes();
+        name_window(2);
+        name_window(0);
+        assert_eq!(
+            *NUMBERS.lock().expect("numbers"),
+            [(102, "SDL.window.x11.window".to_owned(), 3)]
+        );
     }
 
     #[test]

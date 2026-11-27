@@ -551,8 +551,11 @@ universal SDL 3, 1,270 of its 1,302 functions, with guest callbacks through the
 guest thunk. The game's window opens through it, on the main thread
 ([first client boots](FIRST_CLIENT_BOOT_2026-11-27.md)). The owner started a practice
 match from the menu with the mouse
-([the client's first frames](CLIENT_FIRST_FRAMES_2026-11-27.md)); keyboard input and
-mouse look are not yet measured.
+([the client's first frames](CLIENT_FIRST_FRAMES_2026-11-27.md)). In a match the
+keyboard and mouse look work; relative mouse mode and text input failed until the
+bridge gave the window the X11 number the game finds it by. With that, client boot
+54 showed relative mouse mode switching on in the match and text input events
+reaching the game while the owner typed. **Gate met.**
 
 ## Phase F: Vulkan and the first frame
 
