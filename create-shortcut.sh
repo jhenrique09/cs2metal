@@ -4,10 +4,12 @@
 #
 #   create-shortcut.sh            make ~/Applications/Counter-Strike 2.app
 #   create-shortcut.sh --steam    also add it to Steam as a non-Steam game
-#   create-shortcut.sh --online   make the application start run-online.sh
+#   create-shortcut.sh --offline  make an application that starts run-offline.sh
 #
 # The application is a small bundle whose program runs ~/cs2-metal/bin/run.sh, so
 # it shows in Finder, Launchpad, Spotlight, and the Dock under the game's name.
+# Like run.sh, it starts the game online; --offline makes a second application,
+# Counter-Strike 2 (offline), that starts it with -insecure.
 # Its icon is converted on this Mac from the game's own icon file,
 # game/csgo/resource/game-icon.bmp in the installation: nothing of Valve's is
 # shipped with cs2metal.
@@ -33,9 +35,9 @@ name="Counter-Strike 2"
 for arg in "$@"; do
     case "$arg" in
         --steam) steam=1 ;;
-        --online)
-            script="run-online.sh"
-            name="Counter-Strike 2 (online)"
+        --offline)
+            script="run-offline.sh"
+            name="Counter-Strike 2 (offline)"
             ;;
         *) fail "unknown option $arg (see the top of create-shortcut.sh)" ;;
     esac

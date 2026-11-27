@@ -180,7 +180,9 @@ Done. Start the game with:
 
     $bin_dir/run.sh
 
-It plays offline (-insecure). Logs go to $logs_dir.
+It starts online, at your own risk: Valve does not support this, and how Valve
+Anti-Cheat treats it is unknown. For bots only, start it with -offline.
+Logs go to $logs_dir.
 The first start stays black for a few minutes while the game's shaders are
 compiled for Metal, once. It is not stuck; let it finish.
 TEXT

@@ -130,7 +130,7 @@ both sides use the same C++ ABI. (INFERRED from the public headers; verified by 
 | Call Valve's own `steamclient.dylib` from the owner's installation | Read, store, or forward credentials, tokens, or session files |
 | Declare app 730 the way Steam's launcher and Valve's documentation do | Modify, copy, or redistribute any Steam file, with one bounded exception: the owner may have the shortcut added to Steam's list of non-Steam games ([decision](STEAM_SHORTCUT_DECISION.md)) |
 | Report "Steam is not running" or a refused app truthfully and stop | Start, script, or automate the Steam client or its sign-in |
-| Launch with `-insecure` by default, keeping the game off VAC-secured servers | Touch Valve Anti-Cheat in any way |
+| Launch with `-insecure` in every automated boot and with `run.sh -offline`, keeping the game off VAC-secured servers; the launcher's default is online since 27 November 2026 ([decision](ONLINE_DEFAULT_DECISION.md)) | Touch Valve Anti-Cheat in any way |
 
 Consequences the owner should expect: while the game runs, the account shows as
 playing Counter-Strike 2, friends can see it, and play time accrues. That is the real

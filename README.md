@@ -9,8 +9,9 @@ inside one macOS process. No Wine, no virtual machine, no modified game file.
 > its owner reports, casual and competitive matches online, with no VAC ban so far.
 > That is one machine and one day. Valve does not support this. How Valve Anti-Cheat
 > treats this host is **unknown**, and a ban, if one came, need not come the same
-> day. Play online only with an account you can afford to lose. The project is not
-> affiliated with or endorsed by Valve or Apple.
+> day. **The game starts online unless you start it with `-offline`**, so play only
+> with an account you can afford to lose. The project is not affiliated with or
+> endorsed by Valve or Apple.
 
 ## What works
 
@@ -64,9 +65,9 @@ updates, the shortcut, and how to remove it all.
 ## Play
 
 ```bash
-~/cs2-metal/bin/run.sh                 # offline: the game is started with -insecure
+~/cs2-metal/bin/run.sh                 # online, at your own risk
+~/cs2-metal/bin/run.sh -offline        # offline: bots and unsecured servers only
 ~/cs2-metal/bin/run.sh +map de_dust2   # extra arguments go to the engine
-~/cs2-metal/bin/run-online.sh          # online: without -insecure, at your own risk
 ```
 
 Steam for macOS must be running and signed in. Quit from the game's menu, or press
@@ -80,9 +81,13 @@ Ctrl-C in the terminal. Before the game starts, `run.sh`:
 The top of [`run.sh`](run.sh) lists the environment variables that change each of
 these.
 
-`run-online.sh` leaves `-insecure` out, so the game can join servers secured by
-Valve Anti-Cheat. Read [the decision](docs/ONLINE_LAUNCH_DECISION.md) and
-[the policy](docs/ANTI_CHEAT_AND_INTEGRITY_POLICY.md) before you use it.
+**`run.sh` starts the game online**, as Steam would: it can join matchmaking and
+servers secured by Valve Anti-Cheat, on the account signed in to Steam. That is
+the risk the warning at the top of this page describes; read
+[the decision](docs/ONLINE_DEFAULT_DECISION.md) and
+[the policy](docs/ANTI_CHEAT_AND_INTEGRITY_POLICY.md) first. `run.sh -offline`, or
+`run-offline.sh`, starts it with `-insecure` instead, which keeps it off those
+servers: practice matches with bots carry no such risk.
 
 `~/cs2-metal/bin/create-shortcut.sh` makes `~/Applications/Counter-Strike 2.app`,
 with the game's own icon, and with `--steam` adds it to Steam's library.
@@ -202,7 +207,7 @@ against the bundled modules, and lists what a host must provide. Reports go to
 
 | Path | Contents |
 | --- | --- |
-| `install.sh`, `build.sh`, `run.sh`, `run-online.sh`, `create-shortcut.sh` | Set up, build, start, and make a shortcut for the game |
+| `install.sh`, `build.sh`, `run.sh`, `run-offline.sh`, `create-shortcut.sh` | Set up, build, start, and make a shortcut for the game |
 | `apps/cs2metal` | The command-line program: `run`, `baseline`, `inspect`, `inventory`, `tls`, `vulkan` |
 | `crates/cs2metal-loader` | Maps guest ELF modules, rewrites `fs` to `gs`, and bridges the guest and host domains |
 | `crates/cs2metal-linux` | The Linux system call layer on macOS, and the Steam, SDL, and Vulkan bridges |

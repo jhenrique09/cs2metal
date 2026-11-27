@@ -67,8 +67,10 @@ client: no project tool asks for, reads, stores, or logs one. Each boot runs und
 timeout, its log goes to the ignored `runs/` directory, and tracked files cite only
 what the policy allows from it (counts, system call numbers, public interface
 names). Matchmaking, secure servers, and anything that changes the owner's account
-stay owner actions. So do `run-online.sh` and `run.sh -online`, which start the
-game without `-insecure` (`docs/ONLINE_LAUNCH_DECISION.md`), downloading or updating
+stay owner actions. So is `run.sh` without `-offline`: since 27 November 2026 the
+launcher starts the game online, without `-insecure`
+(`docs/ONLINE_DEFAULT_DECISION.md`), so an agent that boots through the launcher
+always uses `run.sh -offline` or `run-offline.sh`. So are downloading or updating
 the game with steamcmd, and `create-shortcut.sh --steam`, which writes Steam's list
 of shortcuts (`docs/STEAM_SHORTCUT_DECISION.md`): an agent never runs them. An agent
 may ask steamcmd, signed in anonymously, which build Steam offers.

@@ -74,7 +74,7 @@ It can be stopped and run again; it skips what is already done. In order, it:
 ~/cs2-metal/
   bin/     cs2metal, the host program
            guest/               the guest's C library and the shims
-           run.sh, run-online.sh, create-shortcut.sh, and their helpers
+           run.sh, run-offline.sh, create-shortcut.sh, and their helpers
   data/    steamcmd/            Valve's downloader
            cs2-linux/           the game, read-only to cs2metal
            cs2-linux.overlay/   everything the game writes into its installation
@@ -91,13 +91,33 @@ the application shortcut if you ask for one.
 ## Play
 
 ```bash
-~/cs2-metal/bin/run.sh
+~/cs2-metal/bin/run.sh             # online
+~/cs2-metal/bin/run.sh -offline    # offline: bots and unsecured servers only
 ```
 
-Steam for macOS must be running and signed in. The game starts offline, with
-`-insecure`. **The first start stays black for a few minutes** while Metal
-compiles the game's shaders, once; it is not stuck. To stop the game, quit from
-its menu or press Ctrl-C in the terminal: both let it shut itself down.
+Steam for macOS must be running and signed in. **The first start stays black for a
+few minutes** while Metal compiles the game's shaders, once; it is not stuck. To
+stop the game, quit from its menu or press Ctrl-C in the terminal: both let it
+shut itself down.
+
+### Online is the default, and it is at your own risk
+
+`run.sh` starts the game as Steam would, so it can join matchmaking and servers
+secured by Valve Anti-Cheat, on the account signed in to Steam
+([decision](ONLINE_DEFAULT_DECISION.md)).
+
+It works: on 27 November 2026 the owner played casual and competitive matches
+online, against other players, and the account was not banned
+([record](ONLINE_PLAY_2026-11-27.md)). That is one machine and one day. Valve does
+not support this host, how Valve Anti-Cheat treats it is unknown, and the project
+never tries to find out. A ban, if one came, could come later, and would be the
+account's. Read the [policy](ANTI_CHEAT_AND_INTEGRITY_POLICY.md) first, and play
+online only with an account you can afford to lose.
+
+`run.sh -offline`, or `run-offline.sh`, passes `-insecure` to the game, which keeps
+it off secured servers: practice matches with bots, with no such risk.
+
+### What `run.sh` does first
 
 | Before the game starts, `run.sh` | Turn it off with |
 | --- | --- |
@@ -106,38 +126,19 @@ its menu or press Ctrl-C in the terminal: both let it shut itself down.
 | Loads Steam's overlay (Shift+Tab) into the host | `CS2METAL_NO_OVERLAY=1` |
 | Leaves the opening movie out | `CS2METAL_KEEP_INTRO=1` |
 
-Arguments go to the engine: `run.sh +map de_dust2`. Diagnostic variables such as
-`CS2METAL_SDL_TRACE=1` and `CS2METAL_VULKAN_TRACE=1` pass through to the host and
-write to the session's log.
-
-## Play online
-
-```bash
-~/cs2-metal/bin/run-online.sh
-```
-
-It is `run.sh` without `-insecure`, so the game can join servers secured by Valve
-Anti-Cheat: matchmaking, and most community servers.
-
-**It works, and it is at your own risk.** On 27 November 2026 the owner played
-casual and competitive matches online this way, against other players, and the
-account was not banned ([record](ONLINE_PLAY_2026-11-27.md)). That is one machine
-and one day. Valve does not support this host, how Valve Anti-Cheat treats it is
-unknown, and the project never tries to find out. A ban, if one came, could come
-later, and would be the account's. Read the
-[decision record](ONLINE_LAUNCH_DECISION.md) and the
-[policy](ANTI_CHEAT_AND_INTEGRITY_POLICY.md) first, and play online only with an
-account you can afford to lose.
+Other arguments go to the engine: `run.sh +map de_dust2`. Diagnostic variables such
+as `CS2METAL_SDL_TRACE=1` and `CS2METAL_VULKAN_TRACE=1` pass through to the host
+and write to the session's log.
 
 ## A shortcut
 
 ```bash
 ~/cs2-metal/bin/create-shortcut.sh            # ~/Applications/Counter-Strike 2.app
 ~/cs2-metal/bin/create-shortcut.sh --steam    # and add it to Steam's library
-~/cs2-metal/bin/create-shortcut.sh --online   # an application that runs run-online.sh
+~/cs2-metal/bin/create-shortcut.sh --offline  # a second application, which starts offline
 ```
 
-The application runs `run.sh`. Its icon is converted on your Mac from the game's own
+The application runs `run.sh`, so it starts the game online. Its icon is converted on your Mac from the game's own
 icon file; nothing of Valve's is shipped with cs2metal. `--steam` adds it to the
 non-Steam games of every Steam account on the Mac. Steam must be quit for that,
 because it writes its list of shortcuts when it quits; the list is copied first

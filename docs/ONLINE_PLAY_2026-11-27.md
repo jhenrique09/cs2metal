@@ -7,7 +7,8 @@ the dated document that [the online launch decision](ONLINE_LAUNCH_DECISION.md) 
 for after the first sessions without `-insecure`. Every result here is **REPORTED**
 by the owner: no automated contributor started, watched, or measured an online
 session, and none ever does (`AGENTS.md`). The machine is an Apple M1 Max on macOS
-27, the game build 26879581. Not edited after the fact.
+27, the game build 26879581. Not edited after the fact, except for the note on the
+launcher's default under "What stays as it was".
 
 ## Question
 
@@ -59,8 +60,10 @@ document. Rule 4 of the [policy](ANTI_CHEAT_AND_INTEGRITY_POLICY.md) stands.
 - Online play is **at the player's own risk**. Valve does not support this host. The
   loss, if one comes, is the account: play online only with one whose loss would not
   matter (rule 7 of the policy).
-- Offline is still the default: `run.sh` passes `-insecure` unless it is told
-  `-online`.
+- Offline was the default when these sessions were played: `run.sh` passed
+  `-insecure` unless it was told `-online`. Later the same day the owner made
+  online the default ([decision](ONLINE_DEFAULT_DECISION.md)); `run.sh -offline`
+  now passes `-insecure`.
 - The rules of the policy, all seven.
 
 ## Open

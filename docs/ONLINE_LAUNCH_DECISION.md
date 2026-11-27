@@ -6,6 +6,12 @@ Accepted on 27 November 2026 by the project owner, who asked for the launcher op
 after reading the risks listed under Context. It is the dated decision record that
 rule 6 of the [policy](ANTI_CHEAT_AND_INTEGRITY_POLICY.md) asks for.
 
+**Superseded in part, later the same day**: the owner decided that online is the
+launcher's default ([decision](ONLINE_DEFAULT_DECISION.md)). `run.sh` now starts
+online, `run.sh -offline` and `run-offline.sh` pass `-insecure`, and
+`run-online.sh` is gone. The Context below, and everything under "What does not
+change", still hold.
+
 ## Context
 
 Rule 6 keeps every launch offline: the game starts with `-insecure`, which keeps it
@@ -63,5 +69,5 @@ On 27 November 2026 the owner played casual and competitive matches online with
 this launcher and reports no ban so far
 ([online play, as the owner reports it](ONLINE_PLAY_2026-11-27.md)). That report
 does not change the Context above: how Valve Anti-Cheat treats this host is still
-unknown, and going online stays a choice made at each launch, at the player's own
-risk.
+unknown, and going online is at the player's own risk. After those sessions the
+owner made online the launcher's default ([decision](ONLINE_DEFAULT_DECISION.md)).

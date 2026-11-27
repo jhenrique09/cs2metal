@@ -113,7 +113,7 @@ if [ "$host_only" = 0 ]; then
     rm -rf "$guest_dir"
     mv "$guest_dir.new" "$guest_dir"
 fi
-for script in run.sh run-online.sh create-shortcut.sh tools/common.sh tools/low-preset.sh \
+for script in run.sh run-offline.sh create-shortcut.sh tools/common.sh tools/low-preset.sh \
     tools/steam_shortcuts.py; do
     install -m 755 "$script" "$bin_dir/$(basename "$script")"
 done

@@ -3,15 +3,18 @@
 # if there is one, and starts the game. Quit from the game's menu, or press
 # Ctrl-C here; either way the game shuts itself down.
 #
-#   run.sh                 start the game, offline (-insecure)
+#   run.sh                 start the game, online
 #   run.sh +map de_dust2   extra arguments go to the engine
-#   run.sh -online         start without -insecure (owner only, see below)
+#   run.sh -offline        start with -insecure: bots and unsecured servers only
 #
-# -insecure is passed unless -online is given: without it the game can join
-# VAC-secured servers through cs2metal, and how Valve Anti-Cheat treats this host
-# is unknown. -online is the owner's opt-in, recorded in
-# docs/ONLINE_LAUNCH_DECISION.md: use a secondary account. Automated contributors
-# never pass it. The option is this script's own and does not reach the engine.
+# Online is the default, by the owner's decision of 27 November 2026
+# (docs/ONLINE_DEFAULT_DECISION.md): the game starts as Steam starts it, and can
+# join servers secured by Valve Anti-Cheat. Valve does not support this host and
+# how Valve Anti-Cheat treats it is unknown, so that is at your own risk: play
+# online only with an account you can afford to lose. -offline passes -insecure
+# to the engine, which keeps the game off those servers. Automated contributors
+# always pass -offline. The option is this script's own and does not reach the
+# engine; -online is accepted and changes nothing.
 #
 # Before the game starts:
 #
@@ -46,14 +49,14 @@ here="$(cd "$(dirname "$0")" && pwd)"
 if [ -f "$here/tools/common.sh" ]; then helpers="$here/tools"; else helpers="$here"; fi
 . "$helpers/common.sh"
 
-online=0
+online=1
 engine_args=()
 for arg in "$@"; do
-    if [ "$arg" = "-online" ]; then
-        online=1
-    else
-        engine_args+=("$arg")
-    fi
+    case "$arg" in
+        -offline) online=0 ;;
+        -online) online=1 ;;
+        *) engine_args+=("$arg") ;;
+    esac
 done
 
 [ -x "$host_bin" ] || fail "cs2metal is not installed in $bin_dir: run ./install.sh, or ./build.sh, in the checkout"
@@ -94,10 +97,11 @@ update_game
 
 if [ "$online" = 1 ]; then
     mode=()
-    echo "cs2metal: -online: starting WITHOUT -insecure. VAC-secured servers are" >&2
-    echo "cs2metal: reachable and the account signed in to Steam carries the risk." >&2
+    say "starting online: VAC-secured servers are reachable, at your own risk."
+    say "For bots and unsecured servers only, start with -offline."
 else
     mode=(-insecure)
+    say "starting offline (-insecure)"
 fi
 
 # The graphics device's vendor and device ids, in decimal, as the Vulkan SDK's
