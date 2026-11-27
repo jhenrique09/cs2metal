@@ -143,6 +143,8 @@ that made it.
   standard error before the process ends: the faulting instruction, the registers,
   and the return addresses the frame pointers lead to, which `CS2METAL_MAPS=1` lets
   one read as guest modules and offsets.
+  `CS2METAL_STACKS=<seconds>` asks every guest thread for the same line at that
+  period, which shows where a thread that never returns is, with its registers.
 - Time: there is no vDSO, so `clock_gettime` and `gettimeofday` are system calls,
   answered with the host clock and counted for performance.
 

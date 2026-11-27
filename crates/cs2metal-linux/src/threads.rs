@@ -398,6 +398,7 @@ extern "C" fn thread_main(arg: *mut libc::c_void) -> *mut libc::c_void {
         unsafe { std::ptr::write_volatile(start.set_tid as *mut u32, start.tid) };
     }
     BLOCK.with(|b| *b.borrow_mut() = Some(block));
+    crate::fault::watch_thread();
     // No RefCell borrow may live across the guest: leave_guest_thread jumps back
     // here and would leak it. The block stays in place inside the thread-local
     // until it is taken out below, so a raw pointer to it is stable meanwhile.
@@ -408,6 +409,7 @@ extern "C" fn thread_main(arg: *mut libc::c_void) -> *mut libc::c_void {
         // would resume the new thread.
         unsafe { run_guest_thread(start.tls, start.rip, start.rsp, &*block) };
     }
+    crate::fault::unwatch_thread();
     // Back on the host stack: the guest thread is gone. Clear its id and wake a
     // joiner, as the kernel does for CLONE_CHILD_CLEARTID.
     let clear = CLEAR_TID.with(Cell::get);

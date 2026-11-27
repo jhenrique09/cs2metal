@@ -238,6 +238,7 @@ pub fn exec(launch: &Launch) -> Result<Infallible, Error> {
         *exe = launch.program.to_string_lossy().into_owned();
     }
     fault::install();
+    fault::watch_thread();
     set_syscall_handler(syscall::handle);
 
     // ld.so runs as the program and loads the real one: ld.so --library-path
