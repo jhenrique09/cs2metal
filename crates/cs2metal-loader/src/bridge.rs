@@ -551,6 +551,20 @@ impl HostBlock {
         self.region.address()
     }
 
+    /// The host function and guest return address of the innermost thunk call
+    /// on this block's thread, for diagnostics.
+    pub fn current_call(&self) -> Option<(u64, u64)> {
+        let top = self.region.read_u64(host::BRIDGE_TOP).ok()?;
+        let frame = top.checked_sub(host::BRIDGE_FRAME_SIZE)?;
+        let offset = frame.checked_sub(self.region.address())?;
+        if offset < host::BRIDGE_FRAMES {
+            return None;
+        }
+        let target = self.region.read_u64(offset + 32).ok()?;
+        let back = self.region.read_u64(offset + 8).ok()?;
+        Some((target, back))
+    }
+
     /// The guest thread pointer the bridge returns to.
     pub fn guest_tp(&self) -> u64 {
         self.region.read_u64(host::GUEST_TP).unwrap_or(0)

@@ -211,7 +211,11 @@ window. Second gate: the main menu renders.
   27 November 2026 with `spikes/steam-client`: served as app 730, online, ownership
   answered ([Steam app probe online](STEAM_APP_PROBE_ONLINE_2026-11-27.md)). H-3 and H-4 remain. H-2 before any
   bridge code.
-- [ ] The bridged client module and the interface proxies.
+- [ ] The bridged client module and the interface proxies. Built on 27 November
+  2026: the dedicated server's `SteamGameServer_Init` succeeds through the owner's
+  macOS client and begins its anonymous logon
+  ([first boots through the bridge](STEAM_BRIDGE_BOOT_2026-11-27.md)). Open until the
+  client boot initializes Steam with the signed-in account.
 
 Gate: Steam initialization succeeds for app 730 without any change to Steam
 authentication.

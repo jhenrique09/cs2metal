@@ -521,6 +521,13 @@ the interface proxies with generic domain-switch thunks. Gate: the engine logs a
 successful Steam initialization with the signed-in account, launched with
 `-insecure`.
 
+State: built on 27 November 2026, the dedicated-server half working
+([first boots through the bridge](STEAM_BRIDGE_BOOT_2026-11-27.md)). The shim at
+`~/.steam/sdk64/steamclient.so` binds to the macOS client library, client objects
+reach the guest as proxies, and the game's own `SteamGameServer_Init` succeeds and
+begins its anonymous logon. The client half, with the signed-in account, waits for
+the client boot of phase E.
+
 Whether the engine can reach its window without Steam is hypothesis H-5; the C4 boot
 log answers it. If it can, D2 moves after phase F.
 

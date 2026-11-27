@@ -36,8 +36,8 @@ unsafe fn guest_str<'a>(p: u64) -> Option<&'a CStr> {
     (p != 0).then(|| unsafe { CStr::from_ptr(p as *const c_char) })
 }
 
-/// A guest path as the host should use it (through the installation overlay),
-/// or a Linux errno.
+/// A guest path as the host should use it (the shims' paths, the installation
+/// overlay), or a Linux errno.
 ///
 /// # Safety
 ///
@@ -243,6 +243,9 @@ pub(crate) extern "C" fn handle(f: &mut SyscallFrame) -> u64 {
 }
 
 fn answer(f: &mut SyscallFrame) -> u64 {
+    if f.number == crate::steam::BIND_STEAM {
+        return crate::steam::bind(f.arg0, f.arg1, f.arg2) as u64;
+    }
     if let Some(value) = crate::more::answer(f) {
         return value as u64;
     }

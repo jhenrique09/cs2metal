@@ -14,6 +14,7 @@ mod fds;
 mod mmap;
 mod more;
 mod paths;
+mod steam;
 mod syscall;
 mod threads;
 mod translate;
@@ -189,6 +190,17 @@ pub fn exec(launch: &Launch) -> Result<Infallible, Error> {
         attach(tp, &block);
     }
     syscall::BLOCK.with(|b| *b.borrow_mut() = Some(block));
+    // The shims built with the rebuilt glibc, served at the paths their Linux
+    // counterparts are loaded from.
+    if let Some(dir) = launch.ld_so.parent() {
+        let shim = dir.join("shims/steamclient.so");
+        if let (Ok(mut slot), Ok(path)) = (
+            steam::SHIM.lock(),
+            CString::new(shim.to_string_lossy().as_bytes()),
+        ) {
+            *slot = Some(path);
+        }
+    }
     if let Some(overlay) = &launch.overlay {
         paths::set_overlay(overlay.clone());
     }

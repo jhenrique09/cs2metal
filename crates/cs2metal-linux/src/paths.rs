@@ -1,4 +1,5 @@
-//! Guest paths as the host should use them: the installation overlay.
+//! Guest paths as the host should use them: the shims' virtual paths, and the
+//! installation overlay.
 //!
 //! The game writes into its own installation: `steam_appid.txt`, configuration,
 //! logs, caches. cs2metal never lets a write reach the installation. Every guest
@@ -97,6 +98,9 @@ pub(crate) fn resolve<'a>(
     dirfd: libc::c_int,
     how: Use,
 ) -> Result<Cow<'a, CStr>, i64> {
+    if let Some(shim) = crate::steam::redirect(path) {
+        return Ok(Cow::Owned(shim));
+    }
     let Some(overlay) = OVERLAY.get() else {
         return Ok(Cow::Borrowed(path));
     };

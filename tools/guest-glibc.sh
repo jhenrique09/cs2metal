@@ -22,18 +22,21 @@ debian="b173a5551de5c569738ee545beda2988769ed3f83c2b67def5cf862408bebe95  glibc_
 
 echo "guest-glibc: building on the x86-64 host named by CS2METAL_BUILD_HOST"
 ssh -o BatchMode=yes "$host" "mkdir -p $work/spec $work/debian"
-rsync -a --delete "$root/guest/glibc/" "$host:$work/spec/"
+# The shims' generated headers come from the owner's own libraries, never tracked.
+"$root/tools/steam-shim-names.sh"
+rsync -a --delete "$root/guest/" "$host:$work/spec/"
+rsync -a --delete "$root/target/guest-shims/" "$host:$work/spec/generated/"
 ssh -o BatchMode=yes "$host" bash -s <<REMOTE
 set -euo pipefail
 cd \$HOME/$work
-docker build -q -t cs2metal-glibc-build spec > /dev/null
+docker build -q -t cs2metal-glibc-build spec/glibc > /dev/null
 if [ ! -d debian/glibc-2.31 ]; then
     docker run --rm -u 0 -v \$HOME/$work/debian:/src cs2metal-glibc-build bash -c \
         "apt-get update -qq && cd /src && apt-get source -qq glibc=2.31-13+deb11u14 && chown -R \$(id -u):\$(id -g) /src"
 fi
 cd debian && printf '%s\n%s\n' "$orig" "$debian" | sha256sum -c --quiet && cd ..
 docker run --rm --network none -u \$(id -u):\$(id -g) \
-    -v \$HOME/$work:/w -v \$HOME/$work/spec:/spec:ro cs2metal-glibc-build /spec/build.sh
+    -v \$HOME/$work:/w -v \$HOME/$work/spec:/spec:ro cs2metal-glibc-build /spec/glibc/build.sh
 REMOTE
 rm -rf "$dest" && mkdir -p "$dest"
 rsync -a "$host:$work/out/" "$dest/"
