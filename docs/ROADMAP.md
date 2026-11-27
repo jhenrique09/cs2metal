@@ -410,7 +410,7 @@ through three ways of giving the guest a C library:
 
 | Route | Summary | What to measure |
 | --- | --- | --- |
-| Own glibc ABI layer | `cs2metal-glibc` in Rust: the symbols the inventory lists, with layout translation | Symbols needed, layout translations, host crossings per fixture |
+| Own glibc ABI layer | An own C library in Rust: the symbols the inventory lists, with layout translation | Symbols needed, layout translations, host crossings per fixture |
 | The runtime's real glibc, system calls translated | Load glibc 2.31 from the sniper runtime unchanged and translate Linux system calls | Each `syscall` instruction is 2 bytes and cannot become a 5-byte call in place, so this needs a second transform or a trap per system call; measure that cost under Rosetta |
 | glibc built from source with a host backend | Compile glibc 2.31 (LGPL) with system calls that call into the host, so no binary patching of glibc | Build effort, how much of glibc's system call layer is centralized, crossings per fixture |
 

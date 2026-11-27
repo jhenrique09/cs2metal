@@ -38,7 +38,9 @@ Rosetta.
 - No work goes into an x86-64 to arm64 translator now. It stays in
   [FUTURE_WORK.md](FUTURE_WORK.md) as the exit from Rosetta.
 - Two rules keep that exit open at no extra cost:
-  - The glibc ABI layer, the substitution table, and the Steam bridge are written so
+  - The Linux system call layer (the glibc ABI layer before the
+    [libc route decision](LIBC_ROUTE_DECISION.md)), the substitution table, and the
+    Steam bridge are written so
     that they do not depend on executing under Rosetta. Only the loader's code
     transforms and the GS bridge are Rosetta-specific.
   - Rosetta-specific mechanisms stay behind one module boundary in the loader.

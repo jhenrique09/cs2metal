@@ -131,23 +131,26 @@ and the M2 to M3 scope below is revised to match.
   27 November 2026: route C, glibc rebuilt with one system call slot, with its own
   ld.so. The [TLS decision](TLS_UNDER_ROSETTA_DECISION.md) was accepted the same
   day, revised for this route.
-- [ ] Acceptance of the [TLS decision](TLS_UNDER_ROSETTA_DECISION.md): fixtures that
+- [x] Acceptance of the [TLS decision](TLS_UNDER_ROSETTA_DECISION.md): fixtures that
   use `__thread`, the stack protector, and threads run correctly with the rewrite.
+  Accepted on 27 November 2026 on the `tlsprobe` evidence; the executable fixtures
+  confirm it on the rebuilt glibc in M3.
 
 Gate: the fixtures print their expected output, including from several threads, and
 the T-001 counters match an independent count of `fs` prefixes in their code.
 
 ### M3: the libc route
 
-- [ ] Bake-off on the fixtures between the own glibc ABI layer, the runtime's real
-  glibc with system calls translated, and glibc built from source with a host
-  backend (roadmap step C3). Choose one from measurements (Gate 1).
-- [ ] The symbols the M1 inventory lists for the first boot path, by family, for
-  the chosen route.
-- [ ] Layout translation for every type that differs, with a test per type.
-- [ ] pthread objects with glibc sizes and lazy host objects; neutral locks on
-  `__ulock_wait` and `__ulock_wake`, measured against libSystem's.
-- [ ] Synthesized `/proc` and `getauxval`.
+- [x] Bake-off and choice (roadmap step C3, Gate 1): route C, recorded above under M2.
+- [ ] The slot-patched glibc 2.31 built from Debian's `2.31-13+deb11u14` source in
+  the fixture pipeline, with `TLS_INIT_TP` patched too, checksums tracked.
+- [ ] `cs2metal-linux`: the host starts the rebuilt ld.so as a kernel would (stack,
+  auxiliary vector, control block) and answers its system calls through the slot.
+- [ ] The system calls the fixtures use, with T-001 at executable `mmap`, until
+  `hello` prints its expected output.
+- [ ] Threads (`clone`, `futex` on `__ulock_wait` and `__ulock_wake`), signals, and
+  synthesized `/proc`, for the `tls`, `stack_guard`, `cxx`, `dlopen`, and `ifunc`
+  fixtures.
 
 Gate: C++ fixtures that throw exceptions across modules, use threads, and read files
 pass with the guest libstdc++ and libgcc_s.

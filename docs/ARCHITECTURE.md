@@ -23,14 +23,16 @@ engineering one); Intel Macs (nothing precludes them, nothing targets them).
 ┌ CS2 Linux build: ELF x86-64, byte-identical on disk ─────────────────────┐
 │ cs2 · libtier0 · libengine2 · libclient · librendersystemvulkan · ...    │
 │ + guest runtime: Linux libstdc++ and libgcc_s (owner-supplied)           │
+│ + guest C library: glibc 2.31 and its ld.so, rebuilt with one system     │
+│   call slot (built by the project from source)                           │
 ├ cs2metal host: x86_64-apple-darwin process under Rosetta 2 ──────────────┤
 │ integrity guard       baseline SHA-256 of the installation, checked      │
-│ loader                map, relocate, bind, TLS, init order, dlopen       │
-│ transform registry    T-001 fs→gs prefix rewrite (proposed)              │
+│ process start         maps ld.so, builds the stack and auxiliary vector  │
+│ system call layer     Linux system calls answered with macOS services    │
+│ transform registry    T-001 fs→gs prefix rewrite, applied at mmap        │
 │ bridge                GS swap between guest and host domains             │
-│ glibc ABI layer       libc, libm, libpthread, libdl, librt in Rust       │
 │ substitution table    SDL3 → macOS SDL3 · libvulkan → Vulkan loader      │
-│                       steamclient → macOS steamclient (proposed)         │
+│                       steamclient → macOS steamclient                    │
 ├ macOS ───────────────────────────────────────────────────────────────────┤
 │ libSystem · Vulkan on Metal (KosmicKrisp or MoltenVK) · CoreAudio · HID  │
 └ Apple silicon ───────────────────────────────────────────────────────────┘
@@ -63,23 +65,28 @@ difference stops the launch and names the files. The baseline lives in the ignor
 `baselines/` directory of the code repository and holds only relative paths.
 `steamapps/` is excluded: it is the download tool's bookkeeping, not the game.
 
-## Loader
+## Process start and dynamic linking
 
-It does what glibc's `ld.so` does, for the subset the inventory proves is used:
+By the [libc route decision](LIBC_ROUTE_DECISION.md), the guest runs glibc's own
+dynamic loader, rebuilt with the rest of glibc 2.31. The host starts it as the Linux
+kernel would:
 
-- Search order: the substitution table first, then bundled modules through
-  `DT_RUNPATH` and `$ORIGIN`, then the glibc ABI layer. An import nothing provides
-  binds to a stub that names the import when called (trap or log-and-return-zero).
-- Symbol versioning, weak symbols, `STB_GNU_UNIQUE`, and interposition in global
-  scope order, so a bundled allocator that exports `malloc` wins as it does on Linux.
-- Relocations: the kinds the inventory counts, including `COPY`, `IRELATIVE`, the
-  TLS relocations, and `RELR`.
-- IFUNC resolvers run with the CPUID that Rosetta reports (no AVX advertised).
-- TLS: a static TLS block per thread in glibc's variant II layout, a DTV,
-  `__tls_get_addr`, and TLS descriptors.
-- Initialization in dependency order (`DT_PREINIT_ARRAY`, `DT_INIT`, `DT_INIT_ARRAY`),
-  finalization in reverse, `dlopen`, `dlsym`, `dladdr`, and `dl_iterate_phdr` so
-  that libgcc_s can unwind C++ exceptions through `.eh_frame`.
+- Map ld.so, build the initial stack (arguments, environment, auxiliary vector with
+  `AT_PHDR`, `AT_ENTRY`, `AT_BASE`, `AT_PAGESZ`, `AT_RANDOM`, `AT_HWCAP`), and enter it
+  with GS at a fresh control block.
+- ld.so then does everything `ld.so` does: it opens and maps `cs2` and every library
+  through system calls, relocates, binds with versions, runs IFUNC resolvers, lays out
+  TLS, and later serves `dlopen`. Each of those system calls reaches the host.
+- When ld.so maps an executable range of a file, the host applies T-001 to that
+  private mapping before returning, using the code scan's proof for the whole file.
+- Libraries in the substitution table are not loaded as guest code. The guest
+  receives a stub library whose functions enter the host's replacements. How the
+  stubs are presented to ld.so (an audit hook, or a preloaded shim library) is the
+  first design question of that work.
+
+`cs2metal-loader`, the project's own linker, stays as the home of T-001, the TLS
+and bridge primitives, and the fixture tests, and as the fallback should this route
+meet a wall.
 
 ## Transform registry
 
@@ -104,21 +111,29 @@ with its decision record and the counter the host logs at load time.
 - The signal entry detects which domain was interrupted and restores the host
   domain before running any macOS code.
 
-## glibc ABI layer
+## Linux system call layer
 
-A Rust implementation of the glibc symbols the inventory lists, with glibc's data
-layouts on the guest side:
+The guest's glibc issues every system call through one slot, `tcbhead_t.sysinfo` at
+`fs:0x20` (rewritten to `gs:0x20` by T-001), which points at a host entry. The entry
+preserves every register a Linux `syscall` preserves, switches to the host domain,
+answers the call with Linux semantics, and returns the result or `-errno` in `rax`.
 
-- Types whose layouts differ are translated at the boundary: `stat`, `dirent`,
-  `sigaction` and `sigset_t`, `rlimit`, `utsname`, socket addresses and options,
-  errno values, open, `mmap`, and `fcntl` flags, and signal numbers.
-- pthread objects keep glibc's sizes. A guest mutex, condition variable, or
-  read-write lock holds a pointer to a lazily created host object, so that glibc's
-  all-zero static initializers keep working.
-- Linux-only interfaces the game reads are synthesized: `/proc/self/exe`,
-  `/proc/self/maps`, `/proc/cpuinfo`, `/proc/meminfo`, `getauxval`, `sysconf`.
-- Process start: `__libc_start_main`, the auxiliary vector, `environ`, and the
-  stack protector's guard values.
+- Numbers, flags, structures, and errno values are Linux's on the guest side and are
+  translated at the boundary: `stat`, `dirent64`, `sigaction`, socket addresses,
+  `open`, `mmap`, and `fcntl` flags, signal numbers.
+- Threads: `clone` with glibc's flags becomes a host thread whose GS starts at the new
+  thread's control block; `futex` becomes `__ulock_wait` and `__ulock_wake`;
+  `set_robust_list` and `rseq` are recorded or declined as glibc tolerates.
+- Memory: `mmap`, `munmap`, `mprotect`, `brk`, and `madvise`, with T-001 at executable
+  file mappings.
+- Linux-only files and calls the game reads are synthesized: `/proc/self/exe`,
+  `/proc/self/maps`, `/proc/cpuinfo`, `/proc/meminfo`, `getrandom`, `uname`,
+  `prlimit64`.
+- Signals: the host's own handlers receive macOS signals and deliver Linux frames to
+  the guest's handlers; the guest's `__restore_rt` trampolines, the only raw `syscall`
+  left in the rebuilt glibc, are never run.
+- Time: there is no vDSO, so `clock_gettime` and `gettimeofday` are system calls,
+  answered with the host clock and counted for performance.
 
 ## Substitution table
 
@@ -160,6 +175,6 @@ private facts the bridge relies on are discovered at run time, never hard-coded.
 | `cs2metal` (app) | Command-line front end | M0, `inspect` and `inventory` |
 | `cs2metal-integrity` | Baseline and verification | M1, done |
 | `cs2metal-codescan` | `fs` accesses, unwind coverage, TLS models | M1, done |
-| `cs2metal-loader` | Mapping, relocation, TLS, bridge (`unsafe` allowed) | M2, first slice: one module mapped, relocated, initialized, and called |
-| `cs2metal-glibc` | glibc ABI layer | M3 |
+| `cs2metal-loader` | Mapping, relocation, TLS, T-001, the GS bridge (`unsafe` allowed) | M2, three slices: one module, a symbol scope, TLS and the bridge |
+| `cs2metal-linux` | Process start and the Linux system call layer | M3 |
 | `cs2metal-platform` | SDL, Vulkan, and Steam substitutions | M5 to M7 |
