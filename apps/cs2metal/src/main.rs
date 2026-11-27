@@ -6,9 +6,18 @@ use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use clap::{Parser, Subcommand};
 use cs2metal_elf::{Elf, consts};
+use cs2metal_integrity::{Baseline, Mode};
+
+/// Where baselines go by default: an ignored directory of the checkout.
+const DEFAULT_BASELINE: &str = "baselines/cs2-linux.json";
+
+/// Exit status of `baseline verify` when the installation differs from its baseline.
+const EXIT_MISMATCH: u8 = 4;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -40,11 +49,39 @@ enum Command {
         #[arg(long)]
         markdown: Option<PathBuf>,
     },
+    /// Record or verify the integrity baseline of an installation.
+    Baseline {
+        #[command(subcommand)]
+        action: BaselineAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum BaselineAction {
+    /// Hash every file of the installation. Run it right after steamcmd's `validate`.
+    Record {
+        game_dir: PathBuf,
+        /// Where to write the baseline.
+        #[arg(long, default_value = DEFAULT_BASELINE)]
+        output: PathBuf,
+        /// Replace an existing baseline.
+        #[arg(long)]
+        force: bool,
+    },
+    /// Compare the installation with its baseline. Exits with status 4 on any difference.
+    Verify {
+        game_dir: PathBuf,
+        #[arg(long, default_value = DEFAULT_BASELINE)]
+        baseline: PathBuf,
+        /// Hash again only files whose size or modification time changed.
+        #[arg(long)]
+        quick: bool,
+    },
 }
 
 fn main() -> ExitCode {
     match run(Cli::parse()) {
-        Ok(()) => ExitCode::SUCCESS,
+        Ok(code) => code,
         Err(message) => {
             eprintln!("cs2metal: {message}");
             ExitCode::FAILURE
@@ -52,7 +89,7 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(cli: Cli) -> Result<(), String> {
+fn run(cli: Cli) -> Result<ExitCode, String> {
     match cli.command {
         Command::Inspect { file, json } => {
             let bytes = fs::read(&file).map_err(|e| format!("{}: {e}", file.display()))?;
@@ -64,7 +101,7 @@ fn run(cli: Cli) -> Result<(), String> {
             } else {
                 print!("{}", summary(&elf));
             }
-            Ok(())
+            Ok(ExitCode::SUCCESS)
         }
         Command::Inventory {
             game_dir,
@@ -87,7 +124,100 @@ fn run(cli: Cli) -> Result<(), String> {
                 inventory.host_libraries.len(),
                 inventory.required_symbol_count()
             );
-            Ok(())
+            Ok(ExitCode::SUCCESS)
+        }
+        Command::Baseline { action } => baseline(action),
+    }
+}
+
+fn gigabytes(bytes: u64) -> f64 {
+    bytes as f64 / 1e9
+}
+
+/// Runs `work` while a second thread reports the bytes hashed every few seconds.
+fn with_progress<T>(work: impl FnOnce(&AtomicU64) -> T) -> T {
+    let progress = AtomicU64::new(0);
+    let done = AtomicBool::new(false);
+    let start = Instant::now();
+    std::thread::scope(|scope| {
+        scope.spawn(|| {
+            let mut last = Instant::now();
+            while !done.load(Ordering::Relaxed) {
+                std::thread::sleep(Duration::from_millis(100));
+                if last.elapsed() >= Duration::from_secs(5) {
+                    last = Instant::now();
+                    eprintln!(
+                        "cs2metal: {:.1} GB hashed ({:.0} s)",
+                        gigabytes(progress.load(Ordering::Relaxed)),
+                        start.elapsed().as_secs_f64()
+                    );
+                }
+            }
+        });
+        let result = work(&progress);
+        done.store(true, Ordering::Relaxed);
+        result
+    })
+}
+
+fn baseline(action: BaselineAction) -> Result<ExitCode, String> {
+    match action {
+        BaselineAction::Record {
+            game_dir,
+            output,
+            force,
+        } => {
+            if output.exists() && !force {
+                return Err(format!(
+                    "{} exists; pass --force to replace it",
+                    output.display()
+                ));
+            }
+            let start = Instant::now();
+            let baseline = with_progress(|p| cs2metal_integrity::record(&game_dir, p))
+                .map_err(|e| e.to_string())?;
+            write_report(&output, &baseline.to_json())?;
+            eprintln!(
+                "cs2metal: recorded {} files and {} links, {:.1} GB, in {:.0} s, to {}",
+                baseline.files.len(),
+                baseline.links.len(),
+                gigabytes(baseline.total_bytes()),
+                start.elapsed().as_secs_f64(),
+                output.display()
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+        BaselineAction::Verify {
+            game_dir,
+            baseline,
+            quick,
+        } => {
+            let text = fs::read_to_string(&baseline)
+                .map_err(|e| format!("{}: {e}", baseline.display()))?;
+            let recorded = Baseline::from_json(&text).map_err(|e| e.to_string())?;
+            let mode = if quick { Mode::Quick } else { Mode::Full };
+            let report =
+                with_progress(|p| cs2metal_integrity::verify(&game_dir, &recorded, mode, p))
+                    .map_err(|e| e.to_string())?;
+            const SHOWN: usize = 20;
+            for difference in report.differences.iter().take(SHOWN) {
+                println!("{difference}");
+            }
+            if report.differences.len() > SHOWN {
+                println!("... and {} more", report.differences.len() - SHOWN);
+            }
+            eprintln!(
+                "cs2metal: {} files checked, {} hashed ({:.1} GB), {} differences",
+                report.files_checked,
+                report.files_hashed,
+                gigabytes(report.bytes_hashed),
+                report.differences.len()
+            );
+            Ok(if report.is_clean() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::from(EXIT_MISMATCH)
+            })
         }
     }
 }

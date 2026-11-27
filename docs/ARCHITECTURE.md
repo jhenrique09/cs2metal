@@ -55,7 +55,8 @@ the thread-pointer swap and the translation of data layouts that differ.
 Before every launch the host hashes every file of the installation and compares the
 result with the baseline the owner recorded after a clean Steam validation. Any
 difference stops the launch and names the files. The baseline lives in the ignored
-`baselines/` directory of the code repository.
+`baselines/` directory of the code repository and holds only relative paths.
+`steamapps/` is excluded: it is the download tool's bookkeeping, not the game.
 
 ## Loader
 
@@ -150,7 +151,7 @@ subset Apple keeps.
 | `cs2metal-elf` | Read-only ELF64 parser | M0, done |
 | `cs2metal-inventory` | Installation scan and host requirements | M0, done |
 | `cs2metal` (app) | Command-line front end | M0, `inspect` and `inventory` |
-| `cs2metal-integrity` | Baseline and verification | M1 |
+| `cs2metal-integrity` | Baseline and verification | M1, done |
 | `cs2metal-loader` | Mapping, relocation, TLS, bridge (`unsafe` allowed) | M2 |
 | `cs2metal-glibc` | glibc ABI layer | M3 |
 | `cs2metal-platform` | SDL, Vulkan, and Steam substitutions | M5 to M7 |

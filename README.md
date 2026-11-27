@@ -40,6 +40,8 @@ cargo run -p cs2metal -- --help
 ## Inspecting a Linux build
 
 ```bash
+cargo run -p cs2metal -- baseline record <game_dir>      # SHA-256 of every file, to baselines/
+cargo run -p cs2metal -- baseline verify <game_dir>      # exit status 4 on any difference
 cargo run -p cs2metal -- inspect <game_dir>/game/bin/linuxsteamrt64/libtier0.so
 cargo run -p cs2metal -- inventory <game_dir> --markdown reports/inventory.md --json reports/inventory.json
 ```
@@ -54,6 +56,7 @@ to `reports/`, which is ignored: they are derived from game files and stay local
 | --- | --- |
 | `crates/cs2metal-elf` | Bounds-checked, read-only ELF64 parser that reads what a dynamic loader reads |
 | `crates/cs2metal-inventory` | Installation scan, import resolution, and host requirement report |
+| `crates/cs2metal-integrity` | Integrity baseline: record and verify the SHA-256 of every game file |
 | `apps/cs2metal` | Command-line front end |
 | `spikes/` | Small, self-contained platform probes and their reproduction scripts |
 | `tools/` | Repository guard and the check suite every commit must pass |

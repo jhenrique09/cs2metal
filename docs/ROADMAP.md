@@ -15,6 +15,7 @@ that changes it.
 | --- | --- |
 | Repository, check suite, policy, licence | Done |
 | ELF parser, `cs2metal inspect`, `cs2metal inventory` | Done |
+| Integrity baseline, `cs2metal baseline record` and `verify` | Done |
 | Rosetta facts: no `fs` base, GS swap works | Measured ([probe](ROSETTA_SEGMENT_PROBE_2026-11-26.md)) |
 | Vulkan needs against both drivers, from public data | Researched ([report](VULKAN_REQUIREMENTS_RESEARCH_2026-11-27.md)) |
 | Steam bridge | Designed, unproven ([design](STEAM_BRIDGE_DESIGN.md)) |
@@ -221,12 +222,27 @@ bundled and the missing libraries, the list of glibc symbols to implement, alloc
 interposition, and the TLS models in use. Record the answers, as counts and public
 names only, in a new dated research document, and resize phase C to match.
 
-### B3. Integrity baseline (to build, S)
+### B3. Integrity baseline (owner, S; exists today)
 
-`cs2metal baseline record <game_dir>` writes the SHA-256 of every file to the ignored
-`baselines/` directory; `cs2metal baseline verify` compares. Every later step that
-opens the installation verifies first. Run `record` only right after steamcmd's
-`validate`.
+```bash
+cargo run --release -p cs2metal -- baseline record ~/cs2metal-kit/cs2-linux
+cargo run --release -p cs2metal -- baseline verify ~/cs2metal-kit/cs2-linux          # full
+cargo run --release -p cs2metal -- baseline verify ~/cs2metal-kit/cs2-linux --quick  # fast
+```
+
+`record` writes the SHA-256, size, and modification time of every file, and the
+target of every symbolic link, to the ignored `baselines/cs2-linux.json`. It refuses
+to replace an existing baseline without `--force`. `verify` exits with status 4 and
+lists the differences when anything is missing, added, modified, or relinked. The
+`steamapps/` directory is left out: it is steamcmd's own bookkeeping, rewritten on
+every update.
+
+Run `record` only right after steamcmd's `validate`, and again after every update.
+Every later step that opens the installation verifies first. `--quick` hashes again
+only the files whose size or modification time changed.
+
+State: built on 27 November 2026. Hashing runs at about 430 MB/s per file on the
+development machine, on all cores at once.
 
 ### B4. Static Vulkan scan (to build, S)
 
@@ -349,7 +365,8 @@ milestones M5 to M8 of the implementation plan. Life after Rosetta is milestone 
 
 ## Critical path and parallel work
 
-- **Owner, today:** A1 to A6, then B1 and B2. Nothing else is blocked on anything.
+- **Owner, today:** A1 to A6, then B1, B3 (`baseline record`), and B2. Nothing else
+  is blocked on anything.
 - **Build, in parallel with the downloads:** C1 and C2 need no game file.
 - **Probes, as soon as A2 and A6 are done:** D1 and F1. They are small, they are
   independent of the loader, and each can invalidate a design.

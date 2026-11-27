@@ -87,3 +87,55 @@ fn errors_are_reported_without_a_panic() {
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("not an ELF file"));
 }
+
+#[test]
+fn baseline_records_refuses_to_overwrite_and_verifies() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let game = dir.path().join("game");
+    fs::create_dir_all(game.join("bin")).expect("mkdir");
+    fs::write(game.join("bin/cs2"), b"abc").expect("write");
+    let baseline = dir.path().join("baselines/cs2-linux.json");
+
+    let record = || {
+        cs2metal()
+            .args(["baseline", "record"])
+            .arg(&game)
+            .arg("--output")
+            .arg(&baseline)
+            .output()
+            .expect("run")
+    };
+    let out = record();
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let json = fs::read_to_string(&baseline).expect("baseline");
+    assert!(json.contains("bin/cs2"));
+    assert!(!json.contains(&*dir.path().to_string_lossy()));
+
+    let again = record();
+    assert!(!again.status.success());
+    assert!(String::from_utf8_lossy(&again.stderr).contains("--force"));
+
+    let verify = |quick: bool| {
+        let mut command = cs2metal();
+        command
+            .args(["baseline", "verify"])
+            .arg(&game)
+            .arg("--baseline")
+            .arg(&baseline);
+        if quick {
+            command.arg("--quick");
+        }
+        command.output().expect("run")
+    };
+    assert_eq!(verify(false).status.code(), Some(0));
+    assert_eq!(verify(true).status.code(), Some(0));
+
+    fs::write(game.join("bin/cs2"), b"abd").expect("write");
+    let out = verify(false);
+    assert_eq!(out.status.code(), Some(4));
+    assert!(String::from_utf8_lossy(&out.stdout).contains("modified: bin/cs2"));
+}

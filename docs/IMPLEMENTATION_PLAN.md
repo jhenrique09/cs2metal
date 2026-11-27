@@ -57,9 +57,12 @@ explicitly before every commit.
   build with steamcmd into a directory outside the repository, signing in
   interactively (roadmap steps A1 to A4):
   `steamcmd +@sSteamCmdForcePlatformType linux +force_install_dir <game_dir> +login <account> +app_update 730 validate +quit`.
-- [ ] `cs2metal-integrity` and `cs2metal baseline record|verify`: SHA-256 of every
+- [x] `cs2metal-integrity` and `cs2metal baseline record|verify`: SHA-256 of every
   file, written to the ignored `baselines/` directory, verified before any later
-  milestone touches the installation.
+  milestone touches the installation. Built on 27 November 2026: 11 library tests
+  (SHA-256 test vectors, links recorded without being followed, nothing modified on
+  disk, every kind of difference in full and quick mode, `steamapps/` excluded) and a
+  command-line test (refusal to overwrite, exit status 4 on a difference).
 - [ ] Run `cs2metal inventory <game_dir>` and answer open questions Q-1 to Q-5 of the
   [feasibility research](FEASIBILITY_RESEARCH_2026-11-26.md) in a new dated research
   document that records counts and public ABI names only.

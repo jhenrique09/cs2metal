@@ -126,20 +126,24 @@ VK_DRIVER_FILES=<KosmicKrisp ICD manifest from the SDK> \
 of the two manifests depends on where the SDK was installed and has not been verified
 on this machine; the SDK's documentation lists it.
 
-## 7. Build cs2metal and inventory the build
+## 7. Build cs2metal, record the baseline, and inventory the build
 
 From the cs2metal checkout:
 
 ```bash
 tools/check.sh
 cargo build --release
+cargo run --release -p cs2metal -- baseline record ~/cs2metal-kit/cs2-linux
 cargo run --release -p cs2metal -- inventory ~/cs2metal-kit/cs2-linux \
   --markdown reports/inventory.md --json reports/inventory.json
 cargo run --release -p cs2metal -- inspect ~/cs2metal-kit/cs2-linux/game/bin/linuxsteamrt64/cs2
 ```
 
-The inventory lists everything the game expects from the system, and `inspect` shows
-what kind of executable `cs2` is. The `reports/` directory is ignored by Git: the
+The baseline records the SHA-256 of every game file in the ignored `baselines/`
+directory, so that every later step can prove the installation is unchanged
+(`baseline verify`). Record it right after the download, before anything else reads
+the installation. The inventory lists everything the game expects from the system,
+and `inspect` shows what kind of executable `cs2` is. The `reports/` directory is ignored by Git: the
 reports are derived from game files and stay local.
 
 ## What comes next
