@@ -30,7 +30,7 @@ engineering one); Intel Macs (nothing precludes them, nothing targets them).
 │ bridge                GS swap between guest and host domains             │
 │ glibc ABI layer       libc, libm, libpthread, libdl, librt in Rust       │
 │ substitution table    SDL3 → macOS SDL3 · libvulkan → Vulkan loader      │
-│                       libsteam_api → macOS Steamworks (hypothesis)       │
+│                       steamclient → macOS steamclient (proposed)         │
 ├ macOS ───────────────────────────────────────────────────────────────────┤
 │ libSystem · Vulkan on Metal (KosmicKrisp or MoltenVK) · CoreAudio · HID  │
 └ Apple silicon ───────────────────────────────────────────────────────────┘
@@ -123,7 +123,7 @@ or the Linux kernel. Their imports bind instead to macOS libraries with the same
 | --- | --- | --- |
 | `libSDL3.so.0` | macOS SDL3, x86-64 build | Windows, input, audio, and Vulkan surface creation. The guest asks SDL for Vulkan instance extensions and receives the Metal surface ones. |
 | `libvulkan.so.1` | Vulkan loader for macOS, x86-64 build | The driver is KosmicKrisp or MoltenVK (open question Q-6). |
-| `libsteam_api.so` | macOS Steamworks library | Hypothesis H-1: the flat API and interface tables are identical because both sides use the Itanium ABI. Closed by M7. |
+| `steamclient.so` | `steamclient.dylib` of the owner's macOS Steam installation | The game's own `libsteam_api.so` stays guest code; only the client library it loads is bridged, with proxied interface objects. See the [Steam bridge design](STEAM_BRIDGE_DESIGN.md). |
 
 The C++ runtime is the opposite case: Linux libstdc++ and libgcc_s are loaded **as
 guest code** from the owner's copy of the Steam Linux Runtime, because macOS libc++
