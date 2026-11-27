@@ -135,6 +135,11 @@ that made it.
 - Signals: the host's own handlers receive macOS signals and deliver Linux frames to
   the guest's handlers; the guest's `__restore_rt` trampolines, the only raw `syscall`
   left in the rebuilt glibc, are never run.
+  Not built yet: the guest's handlers are recorded and never called. Meanwhile a
+  fatal signal (SIGILL, SIGTRAP, SIGABRT, SIGFPE, SIGBUS, SIGSEGV) writes one line to
+  standard error before the process ends: the faulting instruction, the registers,
+  and the return addresses the frame pointers lead to, which `CS2METAL_MAPS=1` lets
+  one read as guest modules and offsets.
 - Time: there is no vDSO, so `clock_gettime` and `gettimeofday` are system calls,
   answered with the host clock and counted for performance.
 

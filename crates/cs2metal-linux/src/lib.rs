@@ -10,6 +10,9 @@
 
 mod brk;
 mod epoll;
+// Guest code runs only in an x86-64 process; elsewhere the report is not installed.
+#[cfg_attr(not(target_arch = "x86_64"), allow(dead_code))]
+mod fault;
 mod fds;
 mod ipc;
 mod mmap;
@@ -234,6 +237,7 @@ pub fn exec(launch: &Launch) -> Result<Infallible, Error> {
     if let Ok(mut exe) = syscall::EXE.lock() {
         *exe = launch.program.to_string_lossy().into_owned();
     }
+    fault::install();
     set_syscall_handler(syscall::handle);
 
     // ld.so runs as the program and loads the real one: ld.so --library-path
