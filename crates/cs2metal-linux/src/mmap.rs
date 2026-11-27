@@ -139,8 +139,17 @@ fn rewrite(fd: libc::c_int, addr: u64, len: u64, offset: u64, prot: libc::c_int)
     0
 }
 
+/// `MAP_32BIT`: memory below 2 GiB, which a Rosetta 2 process does not have, since
+/// its low 4 GiB are the host's `__PAGEZERO`.
+const MAP_32BIT: u64 = 0x40;
+
 /// `mmap(addr, len, prot, flags, fd, offset)` with Linux values.
 pub(crate) fn mmap(addr: u64, len: u64, prot: u64, flags: u64, fd: i64, offset: u64) -> i64 {
+    if flags & MAP_32BIT != 0 {
+        // Fail at once: probing callers try every 64 KiB below 2 GiB otherwise,
+        // with a full-size mapping and unmapping each time.
+        return crate::translate::ENOMEM;
+    }
     let prot = (prot & 0x7) as libc::c_int;
     let mac_flags = translate::mmap_flags(flags);
     let anonymous = mac_flags & libc::MAP_ANON != 0;
@@ -170,4 +179,16 @@ pub(crate) fn mmap(addr: u64, len: u64, prot: u64, flags: u64, fd: i64, offset: 
         }
     }
     mapped as i64
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn map_32bit_fails_at_once() {
+        // PROT_READ|PROT_WRITE, MAP_PRIVATE|MAP_ANONYMOUS|MAP_32BIT
+        let got = mmap(0, 1 << 16, 3, 0x02 | 0x20 | MAP_32BIT, -1, 0);
+        assert_eq!(got, crate::translate::ENOMEM);
+    }
 }

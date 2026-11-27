@@ -262,8 +262,7 @@ fn answer(f: &mut SyscallFrame) -> u64 {
                 (a2 & 7) as libc::c_int,
             ))),
             11 => result(i64::from(libc::munmap(a0 as *mut _, a1 as usize))),
-            // brk: report no growth, so glibc's malloc uses mmap instead.
-            12 => 0,
+            12 => crate::brk::brk(a0),
             13 | 14 => {
                 // rt_sigaction, rt_sigprocmask: recorded as done; signals come
                 // with their own slice.

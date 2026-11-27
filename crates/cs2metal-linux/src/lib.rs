@@ -8,6 +8,7 @@
 //! itself, through system calls this crate answers; each executable file mapping
 //! gets T-001 as it is made.
 
+mod brk;
 mod epoll;
 mod fds;
 mod mmap;
