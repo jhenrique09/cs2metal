@@ -167,6 +167,18 @@ pub struct VersionNeed {
     pub versions: Vec<String>,
 }
 
+/// One `Elf64_Rela` entry of `DT_RELA` or `DT_JMPREL`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+pub struct Relocation {
+    /// The address the relocation writes.
+    pub offset: u64,
+    pub kind: u32,
+    /// Index into the dynamic symbol table; 0 for none. `Elf::symbols` omits the
+    /// null entry, so index `n` is `symbols[n - 1]`.
+    pub symbol: u32,
+    pub addend: i64,
+}
+
 /// What the relocation tables ask the loader to do.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct Relocations {
@@ -177,6 +189,9 @@ pub struct Relocations {
     /// Symbols named by `R_X86_64_COPY` relocations, which copy a library's data
     /// object into the executable.
     pub copy_symbols: Vec<String>,
+    /// Every entry, in table order. Not serialized: reports carry counts.
+    #[serde(skip)]
+    pub entries: Vec<Relocation>,
 }
 
 impl Relocations {
@@ -229,6 +244,13 @@ pub struct Elf {
 }
 
 impl Elf {
+    /// The dynamic symbol a relocation names, if any.
+    pub fn relocation_symbol(&self, r: &Relocation) -> Option<&DynamicSymbol> {
+        (r.symbol as usize)
+            .checked_sub(1)
+            .and_then(|i| self.symbols.get(i))
+    }
+
     pub fn machine_name(&self) -> &'static str {
         consts::machine_name(self.machine)
     }

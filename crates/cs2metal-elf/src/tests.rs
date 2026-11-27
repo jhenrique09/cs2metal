@@ -365,3 +365,31 @@ fn corrupted_section_tables_fail_cleanly() {
         Err(crate::Error::BadEntrySize { .. })
     ));
 }
+
+#[test]
+fn keeps_every_relocation_entry_with_its_symbol_and_addend() {
+    let bytes = libfoo()
+        .import("abort")
+        .code(&[0xc3u8; 0x20], &[])
+        .code_export("entry", 0x10)
+        .code_relocation(R_X86_64_JUMP_SLOT, Some("abort"), 0x18, None)
+        .code_relocation(R_X86_64_RELATIVE, None, 0x08, Some(0x10))
+        .build();
+    let elf = parse(&bytes).expect("valid object");
+    let text = elf
+        .segments
+        .iter()
+        .find(|s| s.kind == PT_LOAD && s.executable())
+        .expect("code segment")
+        .vaddr;
+    let entries = &elf.relocations.entries;
+    assert_eq!(entries.len(), 2);
+    assert_eq!(entries[0].offset, text + 0x18);
+    let bound = elf.relocation_symbol(&entries[0]).map(|s| s.name.as_str());
+    assert_eq!(bound, Some("abort"));
+    assert_eq!(entries[1].kind, R_X86_64_RELATIVE);
+    assert_eq!(entries[1].addend, (text + 0x10) as i64);
+    assert_eq!(elf.relocation_symbol(&entries[1]), None);
+    let export = elf.exports().find(|s| s.name == "entry").expect("export");
+    assert_eq!(export.value, text + 0x10);
+}

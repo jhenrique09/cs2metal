@@ -99,7 +99,12 @@ pub const VER_FLG_BASE: u16 = 0x1;
 pub const VERSYM_HIDDEN: u16 = 0x8000;
 pub const VERSYM_INDEX: u16 = 0x7fff;
 
+pub const R_X86_64_64: u32 = 1;
 pub const R_X86_64_COPY: u32 = 5;
+pub const R_X86_64_GLOB_DAT: u32 = 6;
+pub const R_X86_64_JUMP_SLOT: u32 = 7;
+pub const R_X86_64_RELATIVE: u32 = 8;
+pub const R_X86_64_IRELATIVE: u32 = 37;
 
 /// Sizes of the fixed-layout ELF64 records.
 pub const EHDR_SIZE: u64 = 64;

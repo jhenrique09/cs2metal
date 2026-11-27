@@ -36,12 +36,18 @@ struct Symbol {
     size: u64,
     version: Option<Version>,
     hidden: bool,
+    /// For a symbol defined in the code bytes, its offset there.
+    code_offset: Option<u64>,
 }
 
 #[derive(Debug, Clone)]
 struct Reloc {
     kind: u32,
     symbol: Option<String>,
+    /// Offsets into the code bytes, resolved to addresses once the code is placed:
+    /// where the relocation applies and its addend.
+    code_at: Option<u64>,
+    code_addend: Option<u64>,
 }
 
 /// Machine code, and the `(offset, length)` of each function inside it that gets an
@@ -190,6 +196,7 @@ impl ElfBuilder {
             size: 0,
             version: None,
             hidden: false,
+            code_offset: None,
         })
     }
 
@@ -207,6 +214,7 @@ impl ElfBuilder {
                 version: version.to_owned(),
             }),
             hidden: false,
+            code_offset: None,
         })
     }
 
@@ -221,6 +229,7 @@ impl ElfBuilder {
             size: 16,
             version: None,
             hidden: false,
+            code_offset: None,
         })
     }
 
@@ -237,6 +246,7 @@ impl ElfBuilder {
                 version: version.to_owned(),
             }),
             hidden,
+            code_offset: None,
         })
     }
 
@@ -244,6 +254,8 @@ impl ElfBuilder {
         self.relocations.push(Reloc {
             kind,
             symbol: symbol.map(str::to_owned),
+            code_at: None,
+            code_addend: None,
         });
         self
     }
@@ -252,8 +264,44 @@ impl ElfBuilder {
         self.plt_relocations.push(Reloc {
             kind,
             symbol: Some(symbol.to_owned()),
+            code_at: None,
+            code_addend: None,
         });
         self
+    }
+
+    /// A relocation applying at offset `at` of the `code` bytes. With `addend`, an
+    /// offset into the code bytes, it points there (`R_X86_64_RELATIVE`, a function
+    /// pointer); with `symbol`, it binds that symbol (a GOT slot).
+    pub fn code_relocation(
+        mut self,
+        kind: u32,
+        symbol: Option<&str>,
+        at: u64,
+        addend: Option<u64>,
+    ) -> Self {
+        self.relocations.push(Reloc {
+            kind,
+            symbol: symbol.map(str::to_owned),
+            code_at: Some(at),
+            code_addend: addend,
+        });
+        self
+    }
+
+    /// A global function defined at `offset` of the `code` bytes.
+    pub fn code_export(self, name: &str, offset: u64) -> Self {
+        self.symbol(Symbol {
+            name: name.to_owned(),
+            kind: STT_FUNC,
+            binding: STB_GLOBAL,
+            defined: true,
+            value: 0,
+            size: 1,
+            version: None,
+            hidden: false,
+            code_offset: Some(offset),
+        })
     }
 
     /// Adds an executable segment holding `bytes`, with an `.eh_frame` FDE and an
@@ -567,6 +615,7 @@ impl<'b> Layout<'b> {
             let t = rela_table(&b.relocations);
             (self.place(&t, 8), t.len() as u64)
         });
+        let rela_off = rela.map(|(off, _)| off);
         let jmprel = (!b.plt_relocations.is_empty()).then(|| {
             let t = rela_table(&b.plt_relocations);
             (self.place(&t, 8), t.len() as u64)
@@ -645,6 +694,28 @@ impl<'b> Layout<'b> {
             self.place(&h, 4);
             (text, bytes.len() as u64, hdr, h.len() as u64)
         });
+
+        // Resolve what points into the code now that its address is known.
+        if let Some((text, ..)) = code {
+            for (i, s) in symbols.iter().enumerate() {
+                if let Some(offset) = s.code_offset {
+                    let at = (symtab_off + (i as u64 + 1) * SYM_SIZE + 8) as usize;
+                    let value = self.vaddr(text + offset);
+                    self.out[at..at + 8].copy_from_slice(&value.to_le_bytes());
+                }
+            }
+            for (i, r) in b.relocations.iter().enumerate() {
+                let base = (rela_off.unwrap_or(0) + i as u64 * RELA_SIZE) as usize;
+                if let Some(at) = r.code_at {
+                    let value = self.vaddr(text + at);
+                    self.out[base..base + 8].copy_from_slice(&value.to_le_bytes());
+                }
+                if let Some(addend) = r.code_addend {
+                    let value = self.vaddr(text + addend);
+                    self.out[base + 16..base + 24].copy_from_slice(&value.to_le_bytes());
+                }
+            }
+        }
 
         let mut dynamic: Vec<(u64, u64)> = Vec::new();
         dynamic.extend(needed.iter().map(|&n| (DT_NEEDED, u64::from(n))));

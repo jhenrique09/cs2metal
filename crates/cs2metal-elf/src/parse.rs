@@ -4,7 +4,7 @@ use crate::consts::*;
 use crate::error::{Error, Result};
 use crate::reader::{Reader, offset_of};
 use crate::{
-    DynamicFlags, DynamicSymbol, Elf, Initializers, ObjectType, Relocations, Segment,
+    DynamicFlags, DynamicSymbol, Elf, Initializers, ObjectType, Relocation, Relocations, Segment,
     SymbolBinding, SymbolKind, SymbolVersion, TlsTemplate, VersionNeed,
 };
 
@@ -490,9 +490,16 @@ fn relocations(
     for (addr, size) in rela.into_iter().chain(plt) {
         let base = map.offset(addr)?;
         for i in 0..size / RELA_SIZE {
-            let info = r.u64(offset_of(base, i, RELA_SIZE)? + 8)?;
+            let at = offset_of(base, i, RELA_SIZE)?;
+            let info = r.u64(at + 8)?;
             let kind = (info & 0xffff_ffff) as u32;
             *out.counts.entry(kind).or_default() += 1;
+            out.entries.push(Relocation {
+                offset: r.u64(at)?,
+                kind,
+                symbol: (info >> 32) as u32,
+                addend: r.u64(at + 16)? as i64,
+            });
             if kind == R_X86_64_COPY {
                 let symbol = usize::try_from(info >> 32).ok();
                 if let Some(name) = symbol
