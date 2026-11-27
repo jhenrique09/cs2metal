@@ -115,12 +115,35 @@ fn c_path(p: &Path) -> Option<CString> {
     CString::new(p.as_os_str().as_bytes()).ok()
 }
 
+/// Whether `CS2METAL_NO_INTRO` asks for the game's opening movie to be left out.
+fn no_intro() -> bool {
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("CS2METAL_NO_INTRO").is_some_and(|v| v != "0"))
+}
+
+/// Whether `path` names one of the game's opening movies: the `intro` files of
+/// its Panorama videos, in every size and variant.
+fn is_intro_movie(path: &[u8]) -> bool {
+    const DIRECTORY: &[u8] = b"/panorama/videos/";
+    let Some(at) = path.windows(DIRECTORY.len()).rposition(|w| w == DIRECTORY) else {
+        return false;
+    };
+    let name = &path[at + DIRECTORY.len()..];
+    name.starts_with(b"intro") && name.ends_with(b".webm") && !name.contains(&b'/')
+}
+
 /// Where the host should look for a guest path, or a Linux errno.
 pub(crate) fn resolve<'a>(
     path: &'a CStr,
     dirfd: libc::c_int,
     how: Use,
 ) -> Result<Cow<'a, CStr>, i64> {
+    // The game does not skip its opening movie by any option of its own in
+    // this build. Asked not to find the movie, it goes on to its menu; the
+    // file itself is not touched.
+    if no_intro() && is_intro_movie(path.to_bytes()) {
+        return Err(crate::translate::ENOENT);
+    }
     if let Some(shim) = crate::steam::redirect(path)
         .or_else(|| crate::sdl::redirect(path))
         .or_else(|| crate::vulkan::redirect(path))
@@ -192,6 +215,24 @@ pub(crate) fn resolve<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_opening_movies_are_the_intro_files_of_the_panorama_videos() {
+        assert!(is_intro_movie(b"/game/csgo/panorama/videos/intro.webm"));
+        assert!(is_intro_movie(b"/game/csgo/panorama/videos/intro720p.webm"));
+        assert!(is_intro_movie(
+            b"panorama/videos/../../panorama/videos/intro-perfectworld.webm"
+        ));
+        assert!(!is_intro_movie(
+            b"/game/csgo/panorama/videos/trailer_0.webm"
+        ));
+        assert!(!is_intro_movie(
+            b"/game/csgo/panorama/videos/intro/other.webm"
+        ));
+        assert!(!is_intro_movie(b"/game/csgo/panorama/videos/intro.txt"));
+        assert!(!is_intro_movie(b"/game/csgo/videos/intro.webm"));
+        assert!(!is_intro_movie(b""));
+    }
 
     #[test]
     fn writes_go_to_the_overlay_and_reads_fall_through() {
