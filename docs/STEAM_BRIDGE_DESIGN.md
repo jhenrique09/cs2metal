@@ -134,7 +134,14 @@ both sides use the same C++ ABI. (INFERRED from the public headers; verified by 
 
 Consequences the owner should expect: while the game runs, the account shows as
 playing Counter-Strike 2, friends can see it, and play time accrues. That is the real
-client doing its job. The Steam overlay is not injected, because nothing preloads it.
+client doing its job. The Steam overlay was not injected at first, because nothing preloaded it. Since 27
+November 2026 the launcher (`tools/launch.sh`) inserts the macOS client's own
+overlay renderer, `gameoverlayrenderer.dylib`, into the host process with
+`DYLD_INSERT_LIBRARIES`, and sets `SteamAppId` and `SteamGameId`, as Steam does for a
+game it starts. The renderer hooks the Metal layer MoltenVK presents on, and Steam
+then starts its overlay process for the game: the owner opened the overlay with
+Shift+Tab in client boot 67. It is Valve's library from the owner's installation,
+loaded from where it is; `CS2METAL_NO_OVERLAY=1` leaves it out.
 
 ## Hypotheses and the probes that test them
 

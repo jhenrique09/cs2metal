@@ -18,8 +18,14 @@
 # <kit>/.cs2metal-first-launch, and no later launch touches the video settings:
 # what the owner chooses in the game stays.
 #
+# The Steam overlay (Shift+Tab, and the pages the game opens in Steam's browser)
+# is Steam's own: the macOS client's overlay renderer is inserted into the host
+# process, as Steam does for a game it starts, and Steam then starts its overlay
+# for the game. It draws on the Metal layer under MoltenVK.
+#
 # Environment:
 #   CS2METAL_KIT    the directory with cs2-linux/ and sniper/ (default ~/cs2metal-kit)
+#   CS2METAL_NO_OVERLAY=1            start without the Steam overlay
 #   CS2METAL_KEEP_VIDEO_SETTINGS=1   leave the video settings alone at the first launch too
 #   CS2METAL_*      diagnostics, passed through (e.g. CS2METAL_SDL_TRACE=1)
 set -euo pipefail
@@ -92,6 +98,14 @@ if [ ! -e "$first_launch" ]; then
     if [ "$preset" != 3 ]; then
         date > "$first_launch"
     fi
+fi
+
+# The overlay renderer finds its game by these, which the Steam bridge would set
+# only once the game has declared its app.
+overlay="$HOME/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/MacOS/gameoverlayrenderer.dylib"
+if [ "${CS2METAL_NO_OVERLAY:-0}" != 1 ] && [ -f "$overlay" ]; then
+    export DYLD_INSERT_LIBRARIES="$overlay"
+    export SteamAppId=730 SteamGameId=730
 fi
 
 mkdir -p "$logs"
