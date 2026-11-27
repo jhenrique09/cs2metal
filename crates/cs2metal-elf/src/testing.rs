@@ -44,6 +44,10 @@ struct Reloc {
     symbol: Option<String>,
 }
 
+/// Machine code, and the `(offset, length)` of each function inside it that gets an
+/// FDE in `.eh_frame`.
+type Code = (Vec<u8>, Vec<(u64, u64)>);
+
 /// Fluent builder for test objects.
 #[derive(Debug, Clone)]
 pub struct ElfBuilder {
@@ -63,6 +67,9 @@ pub struct ElfBuilder {
     init_array_entries: u64,
     flags: u64,
     flags_1: u64,
+    code: Option<Code>,
+    /// Use a C++-style CIE ("zPLR") with an indirect personality pointer.
+    personality: bool,
 }
 
 impl ElfBuilder {
@@ -84,6 +91,8 @@ impl ElfBuilder {
             init_array_entries: 0,
             flags: 0,
             flags_1: 0,
+            code: None,
+            personality: false,
         }
     }
 
@@ -244,6 +253,22 @@ impl ElfBuilder {
         self
     }
 
+    /// Adds an executable segment holding `bytes`, with an `.eh_frame` FDE and an
+    /// `.eh_frame_hdr` entry for each `(offset, length)` in `functions`. Bytes not
+    /// covered by any function have no unwind information, as in hand-written
+    /// assembly. The rest of the file then loads without execute permission.
+    pub fn code(mut self, bytes: &[u8], functions: &[(u64, u64)]) -> Self {
+        self.code = Some((bytes.to_vec(), functions.to_vec()));
+        self
+    }
+
+    /// Makes the CIE of `code` look like a C++ runtime's: augmentation "zPLR",
+    /// an indirect pc-relative personality pointer, and an LSDA pointer per FDE.
+    pub fn cxx_unwind_tables(mut self) -> Self {
+        self.personality = true;
+        self
+    }
+
     pub fn relr(mut self, words: u64) -> Self {
         self.relr_words = words;
         self
@@ -331,6 +356,7 @@ impl<'b> Layout<'b> {
         let b = self.b;
         let mut phnum = 3; // LOAD, DYNAMIC, GNU_STACK
         phnum += usize::from(b.interpreter.is_some()) + usize::from(b.tls.is_some());
+        phnum += 2 * usize::from(b.code.is_some()); // a code LOAD and GNU_EH_FRAME
         self.out = vec![0; EHDR_SIZE as usize + phnum * PHDR_SIZE as usize];
 
         // Undefined symbols first: the GNU hash table only covers defined ones.
@@ -547,6 +573,68 @@ impl<'b> Layout<'b> {
             (at, file_size, memory_size, align)
         });
 
+        let code = b.code.as_ref().map(|(bytes, functions)| {
+            let text = self.place(bytes, 16);
+            while self.out.len() % 8 != 0 {
+                self.out.push(0);
+            }
+            let frame = self.out.len() as u64;
+            // A record is a 4-byte length and a body padded with DW_CFA_nop (0)
+            // to a multiple of 4.
+            let record = |t: &mut Vec<u8>, mut body: Vec<u8>| {
+                while body.len() % 4 != 0 {
+                    body.push(0);
+                }
+                t.extend_from_slice(&(body.len() as u32).to_le_bytes());
+                t.extend_from_slice(&body);
+            };
+            // CIE: version 1; FDE pointers pcrel | sdata4 (0x1b).
+            let mut cie = vec![0u8, 0, 0, 0, 1];
+            if b.personality {
+                cie.extend_from_slice(b"zPLR\0");
+                cie.extend_from_slice(&[1, 0x78, 16, 7, 0x9b]);
+                cie.extend_from_slice(&0x1234i32.to_le_bytes());
+                cie.extend_from_slice(&[0x1b, 0x1b]);
+            } else {
+                cie.extend_from_slice(b"zR\0");
+                cie.extend_from_slice(&[1, 0x78, 16, 1, 0x1b]);
+            }
+            let mut t: Vec<u8> = Vec::new();
+            record(&mut t, cie);
+            let mut fdes = Vec::new();
+            for &(offset, length) in functions {
+                let start = frame + t.len() as u64;
+                let cie_pointer = (start + 4 - frame) as u32;
+                let pc_begin = (text + offset) as i64 - (start + 8) as i64;
+                let mut body = Vec::new();
+                body.extend_from_slice(&cie_pointer.to_le_bytes());
+                body.extend_from_slice(&(pc_begin as i32).to_le_bytes());
+                body.extend_from_slice(&(length as u32).to_le_bytes());
+                if b.personality {
+                    body.push(4);
+                    body.extend_from_slice(&0i32.to_le_bytes()); // LSDA
+                } else {
+                    body.push(0);
+                }
+                record(&mut t, body);
+                fdes.push((text + offset, start));
+            }
+            t.extend_from_slice(&0u32.to_le_bytes());
+            self.place(&t, 8);
+
+            fdes.sort();
+            let hdr = self.out.len() as u64;
+            let mut h = vec![1u8, 0x1b, 0x03, 0x3b];
+            h.extend_from_slice(&((frame as i64 - (hdr + 4) as i64) as i32).to_le_bytes());
+            h.extend_from_slice(&(fdes.len() as u32).to_le_bytes());
+            for (pc, fde) in &fdes {
+                h.extend_from_slice(&((*pc as i64 - hdr as i64) as i32).to_le_bytes());
+                h.extend_from_slice(&((*fde as i64 - hdr as i64) as i32).to_le_bytes());
+            }
+            self.place(&h, 4);
+            (text, bytes.len() as u64, hdr, h.len() as u64)
+        });
+
         let mut dynamic: Vec<(u64, u64)> = Vec::new();
         dynamic.extend(needed.iter().map(|&n| (DT_NEEDED, u64::from(n))));
         if let Some(n) = soname {
@@ -636,7 +724,11 @@ impl<'b> Layout<'b> {
             let len = b.interpreter.as_ref().map_or(0, |i| i.len() as u64 + 1);
             phdrs.push(ph(PT_INTERP, PF_R, off, len, len, 1));
         }
-        phdrs.push(ph(PT_LOAD, PF_R | PF_X, 0, total, total, 0x1000));
+        let main_flags = if code.is_some() { PF_R } else { PF_R | PF_X };
+        phdrs.push(ph(PT_LOAD, main_flags, 0, total, total, 0x1000));
+        if let Some((text, len, _, _)) = code {
+            phdrs.push(ph(PT_LOAD, PF_R | PF_X, text, len, len, 16));
+        }
         phdrs.push(ph(
             PT_DYNAMIC,
             PF_R | PF_W,
@@ -647,6 +739,9 @@ impl<'b> Layout<'b> {
         ));
         if let Some((off, filesz, memsz, align)) = tls {
             phdrs.push(ph(PT_TLS, PF_R, off, filesz, memsz, align));
+        }
+        if let Some((_, _, hdr, len)) = code {
+            phdrs.push(ph(PT_GNU_EH_FRAME, PF_R, hdr, len, len, 4));
         }
         phdrs.push(ph(PT_GNU_STACK, PF_R | PF_W, 0, 0, 0, 16));
         for (i, p) in phdrs.iter().enumerate() {

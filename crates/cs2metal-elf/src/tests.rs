@@ -254,3 +254,62 @@ fn every_single_byte_corruption_fails_cleanly() {
         }
     }
 }
+
+#[test]
+fn reads_function_ranges_from_the_unwind_tables() {
+    // Three functions; the bytes between 0x20 and 0x30 have no FDE.
+    let code = [0x90u8; 0x40];
+    let bytes = libfoo()
+        .code(&code, &[(0x30, 0x10), (0x00, 0x08), (0x08, 0x18)])
+        .load_bias(0x10_0000)
+        .build();
+    let elf = parse(&bytes).expect("valid object");
+    let text = elf
+        .segments
+        .iter()
+        .find(|s| s.kind == PT_LOAD && s.executable())
+        .expect("code segment");
+    let ranges = crate::unwind_ranges(&bytes, &elf).expect("unwind tables");
+    let relative: Vec<_> = ranges
+        .iter()
+        .map(|r| (r.start - text.vaddr, r.end - text.vaddr))
+        .collect();
+    assert_eq!(relative, [(0x00, 0x08), (0x08, 0x20), (0x30, 0x40)]);
+    let gnu = elf.segments.iter().find(|s| s.kind == PT_GNU_EH_FRAME);
+    assert_eq!(gnu.map(|s| s.name()), Some("GNU_EH_FRAME"));
+}
+
+#[test]
+fn reads_cxx_style_tables_with_an_indirect_personality() {
+    let bytes = libfoo()
+        .code(&[0xc3u8; 0x20], &[(0x10, 0x10), (0x00, 0x10)])
+        .cxx_unwind_tables()
+        .build();
+    let elf = parse(&bytes).expect("valid object");
+    let ranges = crate::unwind_ranges(&bytes, &elf).expect("unwind tables");
+    assert_eq!(ranges.len(), 2);
+    assert_eq!(ranges[0].end, ranges[1].start);
+}
+
+#[test]
+fn an_object_without_unwind_tables_has_no_ranges() {
+    let bytes = libfoo().build();
+    let elf = parse(&bytes).expect("valid object");
+    assert_eq!(crate::unwind_ranges(&bytes, &elf), Ok(Vec::new()));
+}
+
+#[test]
+fn corrupted_unwind_tables_fail_cleanly() {
+    let bytes = libfoo().code(&[0xc3u8; 32], &[(0, 16), (16, 16)]).build();
+    let elf = parse(&bytes).expect("valid object");
+    for at in 0..bytes.len() {
+        for value in [0x00, 0xff, 0x7f] {
+            let mut corrupted = bytes.clone();
+            corrupted[at] = value;
+            if let Ok(e) = parse(&corrupted) {
+                let _ = crate::unwind_ranges(&corrupted, &e);
+            }
+            let _ = crate::unwind_ranges(&corrupted, &elf);
+        }
+    }
+}

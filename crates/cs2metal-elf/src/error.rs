@@ -27,6 +27,9 @@ pub enum Error {
     UnsupportedRelocationFormat(u64),
     /// A dynamic table address appears without the size that goes with it.
     MissingTag(&'static str),
+    /// The `.eh_frame` or `.eh_frame_hdr` tables are malformed or use an encoding
+    /// the parser does not support.
+    BadUnwindInfo(&'static str),
 }
 
 impl fmt::Display for Error {
@@ -54,6 +57,7 @@ impl fmt::Display for Error {
                 write!(f, "unsupported relocation table format (tag {t})")
             }
             Self::MissingTag(tag) => write!(f, "missing dynamic tag {tag}"),
+            Self::BadUnwindInfo(why) => write!(f, "bad unwind tables: {why}"),
         }
     }
 }

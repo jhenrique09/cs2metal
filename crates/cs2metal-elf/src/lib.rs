@@ -15,6 +15,7 @@
 //! ```
 
 pub mod consts;
+mod eh_frame;
 mod error;
 mod parse;
 mod reader;
@@ -27,6 +28,7 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
+pub use eh_frame::{FunctionRange, unwind_ranges};
 pub use error::{Error, Result};
 pub use parse::parse;
 
