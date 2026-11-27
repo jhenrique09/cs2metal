@@ -61,8 +61,38 @@ fn sysctl_u32(name: &std::ffi::CStr) -> Option<u32> {
     (status == 0).then_some(value)
 }
 
-fn cpus() -> u32 {
-    sysctl_u32(c"hw.logicalcpu").unwrap_or(1).max(1)
+/// The processors the guest is told of, given what the host has: `performance`
+/// cores of the fast kind where the Mac has two kinds, `logical` in all, and
+/// what `CS2METAL_CPUS` asks for, if anything.
+fn guest_cpus(performance: Option<u32>, logical: Option<u32>, asked: Option<&str>) -> u32 {
+    let logical = logical.unwrap_or(1).max(1);
+    if let Some(n) = asked.and_then(|n| n.trim().parse::<u32>().ok()) {
+        return n.clamp(1, logical);
+    }
+    performance
+        .filter(|&n| n > 0)
+        .unwrap_or(logical)
+        .min(logical)
+}
+
+/// The number of processors the guest sees, in `/proc/cpuinfo`, under
+/// `/sys/devices/system/cpu`, and from `sched_getaffinity`.
+///
+/// On Apple silicon that is the performance cores only. The engine sizes its job
+/// pool by this number and splits a frame's work evenly over the pool, so a job
+/// thread that lands on an efficiency core, a third as fast, holds the frame
+/// until it is done. With one thread per performance core the scheduler has no
+/// reason to use the slow ones. `CS2METAL_CPUS=<n>` names another number, up to
+/// all of the Mac's.
+pub(crate) fn cpus() -> u32 {
+    static COUNT: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
+    *COUNT.get_or_init(|| {
+        guest_cpus(
+            sysctl_u32(c"hw.perflevel0.logicalcpu"),
+            sysctl_u32(c"hw.logicalcpu"),
+            std::env::var("CS2METAL_CPUS").ok().as_deref(),
+        )
+    })
 }
 
 /// Linux's names for the CPUID features macOS reports.
@@ -269,6 +299,23 @@ mod tests {
     fn read(path: &str) -> String {
         let host = synthesize(path.as_bytes()).unwrap_or_else(|| panic!("{path}"));
         std::fs::read_to_string(host.to_str().expect("utf-8")).expect("read")
+    }
+
+    #[test]
+    fn the_guest_is_told_of_the_performance_cores() {
+        // An M1 Max: eight performance cores of ten.
+        assert_eq!(guest_cpus(Some(8), Some(10), None), 8);
+        // A Mac with one kind of core has no performance level to ask about.
+        assert_eq!(guest_cpus(None, Some(8), None), 8);
+        assert_eq!(guest_cpus(Some(0), Some(8), None), 8);
+        assert_eq!(guest_cpus(None, None, None), 1);
+        // CS2METAL_CPUS, within what the Mac has.
+        assert_eq!(guest_cpus(Some(8), Some(10), Some("10")), 10);
+        assert_eq!(guest_cpus(Some(8), Some(10), Some("4")), 4);
+        assert_eq!(guest_cpus(Some(8), Some(10), Some("64")), 10);
+        assert_eq!(guest_cpus(Some(8), Some(10), Some("0")), 1);
+        assert_eq!(guest_cpus(Some(8), Some(10), Some("many")), 8);
+        assert!(cpus() >= 1);
     }
 
     #[test]

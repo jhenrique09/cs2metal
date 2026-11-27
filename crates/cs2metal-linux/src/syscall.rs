@@ -510,8 +510,8 @@ fn answer(f: &mut SyscallFrame) -> u64 {
             }
             273 => 0, // set_robust_list: recorded as done; robust futexes are not emulated
             204 => {
-                // sched_getaffinity: every CPU the host reports, as a mask.
-                let n = std::thread::available_parallelism().map_or(1, |n| n.get());
+                // sched_getaffinity: every processor the guest is told of, as a mask.
+                let n = crate::procfs::cpus() as usize;
                 let bytes = (a1 as usize).min(128);
                 std::ptr::write_bytes(a2 as *mut u8, 0, bytes);
                 for cpu in 0..n.min(bytes * 8) {

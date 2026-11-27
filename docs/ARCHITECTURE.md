@@ -159,6 +159,11 @@ that made it.
 - Linux-only files and calls the game reads are synthesized: `/proc/self/exe`,
   `/proc/self/maps`, `/proc/cpuinfo`, `/proc/meminfo`, `getrandom`, `uname`,
   `prlimit64`.
+- The processors the guest is told of, in `/proc/cpuinfo`, under
+  `/sys/devices/system/cpu`, and by `sched_getaffinity`, are the Mac's performance
+  cores only: eight on an M1 Max, not ten. The engine sizes its job pool by that
+  number and splits a frame's work evenly over it, so a job thread on an
+  efficiency core would hold the frame. `CS2METAL_CPUS=<n>` names another number.
 - Open files: a process that launchd starts, as an application is, has a soft
   limit of 256 open files, and so has one started from a shell that did not raise
   it. The game keeps more than 500 of its package files open, and stops with a
