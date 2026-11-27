@@ -61,3 +61,10 @@ to `reports/`, which is ignored: they are derived from game files and stay local
 
 Architecture, decision records, the implementation plan, and dated research live in
 [`docs/`](docs/README.md). Start with the index there.
+
+## Licence
+
+cs2metal is free software, licensed under the
+[GNU General Public License, version 3](LICENSE). It comes with no warranty. The
+licence covers this project's own code and documentation only; Counter-Strike 2 and
+Steam belong to Valve and are never distributed here.

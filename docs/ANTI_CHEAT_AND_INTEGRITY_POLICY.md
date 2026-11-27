@@ -59,9 +59,10 @@ below still apply in full.
 
 ## Licensing
 
-Undecided. No licence file exists yet, so the code is not yet licensed to anyone.
-If code from VIctory or Native VIctory for macOS (both GPL-3.0) is ever reused, the
-project must adopt a GPL-3.0-compatible licence before that commit.
+The project's code and documentation are licensed under the GNU General Public
+License, version 3 (`LICENSE` at the repository root; SPDX `GPL-3.0-only`), by owner
+decision on 26 November 2026. Code from VIctory and Native VIctory for macOS, both
+GPL-3.0, may therefore be reused with attribution and their copyright notices kept.
 
 ## Trademarks
 

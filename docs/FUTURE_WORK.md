@@ -15,5 +15,5 @@ only with a decision record.
 | App bundle and launcher | A double-click experience with the integrity guard built in | M8 |
 | Real game controllers through the Game Controller framework | Beyond what SDL3 already covers on macOS | M5 |
 | Continuous integration on macOS runners | Run the check suite on every push | A hosted remote for the code repository |
-| Shared components with Native VIctory for macOS | Its bridge, signal handling, and Metal findings overlap with this project | A licence decision (see the [policy](ANTI_CHEAT_AND_INTEGRITY_POLICY.md)) |
+| Shared components with Native VIctory for macOS | Its bridge, signal handling, and Metal findings overlap with this project | Attribution and notices as the GPL-3.0 requires (see the [policy](ANTI_CHEAT_AND_INTEGRITY_POLICY.md)) |
 | Syscall-level mode: load the runtime's real glibc and emulate Linux system calls | Fewer layout translations, at the price of rewriting `syscall` instructions in glibc | Evidence from M3 that the glibc layer is the bottleneck |
