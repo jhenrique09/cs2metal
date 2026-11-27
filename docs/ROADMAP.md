@@ -56,6 +56,8 @@ The two gates come from the
 - **Gate 0** passes when B2, B3, B5, B6, D1 (H-2), and F1 have run on the real build and
   none of them invalidates the design. Until then nothing beyond fixtures and the
   loader core is built.
+  State on 27 November 2026: B2, B3, B5, and B6 have run on build 26879581 and none
+  invalidates the design. D1 (H-2) and F1 remain.
 - **Gate 1** passes when the libc route of C3 is chosen from measurements on the
   fixtures. The architecture and the effort budget are revised around it before the
   route is built out.
@@ -310,9 +312,10 @@ Run on the game on 27 November 2026
 ([inventory and scan](LINUX_BUILD_INVENTORY_2026-11-27.md)). Inside FDE ranges all
 17,734 `fs` accesses are rewritable, and 17,733 of them read the stack guard. The
 FDEs cover only 48.8% of the code, though, and `libtier0.so` has 10 real
-thread-pointer reads outside them. The scan does not pass yet; B6 follows.
+thread-pointer reads outside them. On its own the scan did not pass; B6 closed the
+gap the same day.
 
-### B6. Code discovery beyond the unwind tables (to build, M)
+### B6. Code discovery beyond the unwind tables (exists today)
 
 The [TLS decision](TLS_UNDER_ROSETTA_DECISION.md) lets T-001 decode outside FDE
 ranges only where an independent rule proves the bytes are code. Add that rule to
@@ -324,6 +327,13 @@ the `fs` accesses found there.
 Done when the rule reaches the 10 thread-pointer reads in `libtier0.so`, reaches
 none of the 523 data decodes the linear sweep finds, and `objdump` agrees with every
 count. If it cannot separate the two, B5's stop condition applies.
+
+State: done on 27 November 2026
+([code discovery](CODE_DISCOVERY_2026-11-27.md)). Discovery proves 43.0% of the code
+beyond the FDEs (91.9% in total) with no conflict on trusted paths. It reaches all 10
+`libtier0.so` reads and none of the 523 data decodes, of which 514 lie in data the
+code loads by `lea` and 9 are `fs` string instructions. All 61 modules are clean.
+The `lea` rule is a measured heuristic, so the loader recounts at load time.
 
 ### B4. Static Vulkan scan (to build, S)
 
@@ -494,7 +504,7 @@ research prototype, by the [Rosetta horizon decision](ROSETTA_HORIZON_DECISION.m
 | --- | --- | --- |
 | steamcmd will not deliver the Linux depot to a Mac | A4 | Steam console `download_depot`, depot by depot |
 | `cs2` is a fixed-address executable inside the first 4 GB | B2 | Ruled out on 27 November 2026: `cs2` is a PIE |
-| Code outside the unwind tables cannot be told from data | B6 | Stop and reassess T-001 |
+| Code outside the unwind tables cannot be told from data | B6 | Stop and reassess T-001. Did not happen: separated on 27 November 2026 |
 | Steam on macOS refuses app 730 | D1 | No Steam for the guest; boot as far as the engine goes without it |
 | No x86-64 Vulkan driver works under Rosetta | F1 | Stop and reassess. An arm64 rendering helper is a new project with its own decision record |
 | The `fs` rewrite cannot be made safe on real modules | C2, C4 | The own-translator route |

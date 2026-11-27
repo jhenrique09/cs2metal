@@ -89,8 +89,11 @@ explicitly before every commit.
   instructions no longer counted as `fs:0`): every `fs` access inside FDE ranges is
   rewritable, FDEs cover 48.8% of the code, and `libtier0.so` has 10 real
   thread-pointer reads outside them.
-- [ ] Code discovery beyond the unwind tables (roadmap step B6): recursive descent
-  that reaches the 10 `libtier0.so` sites and none of the 523 data decodes.
+- [x] Code discovery beyond the unwind tables (roadmap step B6): recursive descent
+  that reaches the 10 `libtier0.so` sites and none of the 523 data decodes. Done on
+  27 November 2026 with 7 tests on hand-assembled code: all 10 reached and
+  rewritable, no data decode reached, 61 of 61 modules clean
+  ([code discovery](CODE_DISCOVERY_2026-11-27.md)).
 
 Gate (Gate 0 of the [roadmap](ROADMAP.md), with probes H-2 and F1): the inventory
 and the code scan answer Q-1 to Q-5 and measure T-001's coverage on the real modules,

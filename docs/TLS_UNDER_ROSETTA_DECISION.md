@@ -6,6 +6,11 @@ Proposed on 26 November 2026. Becomes accepted when the loader milestone (M2) ru
 the project's own Linux fixtures through it and the owner signs off. Until then no
 code implements the rewrite.
 
+Revised on 27 November 2026, after the coverage condition was measured on the real
+build: the "decode, never scan" condition now names the code-discovery rule, and the
+load policy says which unexplained decodes block a module
+([code discovery](CODE_DISCOVERY_2026-11-27.md)). The coverage condition is met.
+
 ## Context
 
 Linux x86-64 code addresses thread-local storage and the stack-protector canary
@@ -33,24 +38,31 @@ the pointer guard. TLS variables sit at negative offsets from the thread pointer
 Option 1, under these conditions:
 
 - **Coverage first.** The decision is accepted only after `cs2metal tls scan` (roadmap
-  step B5) has measured, on the real modules, how many executable bytes the unwind
-  tables cover and how many `fs` prefixes lie outside them.
+  steps B5 and B6) has measured, on the real modules, how many executable bytes the
+  unwind tables cover and how many `fs` prefixes lie outside them. Met on
+  27 November 2026: FDEs describe 48.8% of the code, discovery proves another 43.0%,
+  and every `fs` access in proven code (17,744) has a located prefix.
 - **Discover, never hard-code.** The host TSD block is found at run time by matching
   the words `gs` addresses, as the probe and Native VIctory do; the offset measured
   on one machine (`pthread_self() + 0xE0`) is an observation, not an ABI.
 - **Decode, never scan.** A byte-pattern search for `0x64` would corrupt data and
   instruction operands. Prefixes are found with a full x86-64 decoder over the
-  function ranges that `.eh_frame` describes. Bytes outside known function ranges are
-  decoded only when an independent rule proves they are code; otherwise they are
+  function ranges that `.eh_frame` describes, and over the code that discovery proves
+  beyond them: recursive descent from the module's own declarations of code (FDE
+  code, exports, the entry point, `DT_INIT` and `DT_FINI`, code pointers in
+  relocations), plus `lea` targets accepted only if their whole component decodes
+  without overlap, invalid encoding, or `fs` string instruction. Everything else is
   reported, not rewritten.
 - **Private copies only.** The rewrite applies to the loader's private, copy-on-write
   mapping. The file on disk stays byte-identical, and the integrity baseline proves
   it before each launch.
 - **Registered and counted.** The transform is entry T-001 in the registry in
   [ARCHITECTURE.md](ARCHITECTURE.md). The host logs, per module, the number of
-  instructions rewritten and the number of unexplained `fs` prefixes found outside
-  decoded ranges. A module with unexplained prefixes refuses to load unless the
-  owner overrides it explicitly.
+  instructions rewritten and the `fs` decodes found outside proven code, split into
+  data the code refers to, string instructions, and the rest. A module refuses to
+  load, unless the owner overrides it explicitly, when any of the rest exists: an
+  unexplained decode that could be a real access. The counts must equal those of
+  `cs2metal tls scan` for the same module.
 - **Domain-aware bridge.** Host functions are classed as *neutral* (no macOS
   thread-specific data, such as `memcpy` implemented in Rust without libSystem
   calls), which skip the swap, or *host*, which swap. Callbacks from macOS into guest
