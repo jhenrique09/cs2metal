@@ -1253,6 +1253,14 @@ fn no_fullscreen_spaces() {
 /// Points the macOS Vulkan loader at the SDK's MoltenVK manifest, in the host
 /// environment, unless the owner names drivers.
 pub(crate) fn prepare_vulkan_environment() {
+    // MoltenVK compiles each shader with Metal's compiler, by default one at a
+    // time. The renderer compiles pipelines on several threads, and a pipeline
+    // seen for the first time stalls a frame until its shaders are compiled.
+    const CONCURRENT: &str = "MVK_CONFIG_SHOULD_MAXIMIZE_CONCURRENT_COMPILATION";
+    if std::env::var_os(CONCURRENT).is_none() {
+        // SAFETY: the host environment; the guest's is separate.
+        unsafe { std::env::set_var(CONCURRENT, "1") };
+    }
     if std::env::var_os("VK_DRIVER_FILES").is_some()
         || std::env::var_os("VK_ICD_FILENAMES").is_some()
     {

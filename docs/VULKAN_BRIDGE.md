@@ -47,6 +47,11 @@ unchanged; MoltenVK does not call them.
 requests, the measurement Q-7 asks for. It also counts the swapchain's calls, and
 every ten seconds reports the pacing of presents: how many, the median interval,
 the 99th percentile, the longest, and how many took more than twice the median.
+`MVK_CONFIG_SHOULD_MAXIMIZE_CONCURRENT_COMPILATION` is set to 1 in the host
+environment unless the owner sets it: MoltenVK then lets Metal compile several
+shaders at once, where by default it compiles one at a time, while the renderer
+compiles pipelines on several threads. Its effect on the first-use stutters is not
+measured yet.
 `CS2METAL_VULKAN_HIDE`, a comma-separated list of device extension names, removes
 them from what `vkEnumerateDeviceExtensionProperties` reports to the game, to test
 whether the renderer works better without one, such as `VK_KHR_present_wait`.
