@@ -2,7 +2,7 @@
 
 ## Status
 
-Backlog, reconciled on 26 November 2026. Nothing here is approved for
+Backlog, reconciled on 27 November 2026. Nothing here is approved for
 implementation; an item moves into the [implementation plan](IMPLEMENTATION_PLAN.md)
 only with a decision record.
 
@@ -17,4 +17,5 @@ only with a decision record.
 | Real game controllers through the Game Controller framework | Beyond what SDL3 already covers on macOS | M5 |
 | Continuous integration on macOS runners | Run the check suite on every push | A hosted remote for the code repository |
 | Shared components with Native VIctory for macOS | Its bridge, signal handling, and Metal findings overlap with this project | Attribution and notices as the GPL-3.0 requires (see the [policy](ANTI_CHEAT_AND_INTEGRITY_POLICY.md)) |
+| Shader pre-compilation from Fossilize data | The stutters that remain are the first use of each pipeline: 16 spikes of 0.1 to 1.9 s in the owner's first ten minutes of a casual match on 27 November 2026, almost all in the first two. On Linux the Steam client delivers a game's pipeline descriptions as Fossilize databases and replays them through the GPU driver before the game runs (REPORTED, community sources; no source found that `steamcmd` can fetch them, and the macOS client does not offer them). Replaying such a database through MoltenVK, inside the host process so that Metal's caches are the game's, would pay that cost before a match | A Fossilize database for the build, which today only a Linux Steam client downloads; a decision record on reading one |
 | Syscall-level mode: load the runtime's real glibc and emulate Linux system calls | Fewer layout translations, at the price of rewriting `syscall` instructions in glibc | Evidence from M3 that the glibc layer is the bottleneck |
