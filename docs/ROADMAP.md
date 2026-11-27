@@ -56,8 +56,8 @@ The two gates come from the
 - **Gate 0** passes when B2, B3, B5, B6, D1 (H-2), and F1 have run on the real build and
   none of them invalidates the design. Until then nothing beyond fixtures and the
   loader core is built.
-  State on 27 November 2026: B2, B3, B5, and B6 have run on build 26879581 and none
-  invalidates the design. D1 (H-2) and F1 remain.
+  State on 27 November 2026: B2, B3, B5, B6, and F1 have run and none invalidates
+  the design. Only D1 (H-2) remains, and it needs the owner signed in to Steam.
 - **Gate 1** passes when the libc route of C3 is chosen from measurements on the
   fixtures. The architecture and the effort budget are revised around it before the
   route is built out.
@@ -221,6 +221,10 @@ documents where its manifests are installed. `reports/` is ignored by Git. These
 [Vulkan research](VULKAN_REQUIREMENTS_RESEARCH_2026-11-27.md) into measurements:
 subgroup operation bits, BC texture compression, and every limit.
 
+State: done on 27 November 2026 with SDK 1.4.363.1. `arch` drops `DYLD_*`
+variables, so pass them with `arch -e`; the SDK's KosmicKrisp has no x86-64 slice
+([Vulkan driver measurement](VULKAN_DRIVER_MEASUREMENT_2026-11-27.md)).
+
 ## Phase B: know the build
 
 ### B1. Build cs2metal and run the checks (owner, S; exists today)
@@ -335,12 +339,21 @@ beyond the FDEs (91.9% in total) with no conflict on trusted paths. It reaches a
 code loads by `lea` and 9 are `fs` string instructions. All 61 modules are clean.
 The `lea` rule is a measured heuristic, so the loader recounts at load time.
 
-### B4. Static Vulkan scan (to build, S)
+### B4. Static Vulkan scan (exists today)
 
 `cs2metal vulkan scan <game_dir>` lists the Vulkan extension and command names inside
 the Linux renderer module, and `cs2metal vulkan compare` crosses them with the
 `vulkaninfo` reports of A6. It replaces the Windows-derived list of the Vulkan
 research with the real one.
+
+```bash
+cargo run --release -p cs2metal -- vulkan compare ~/cs2metal-kit/cs2-linux \
+  reports/vulkaninfo-*.json --markdown reports/vulkan-compare.md
+```
+
+State: built and run on 27 November 2026. The Linux module names 68 device
+extensions; MoltenVK offers 33 and KosmicKrisp 35, and both report every subgroup
+operation and BC compression ([Vulkan driver measurement](VULKAN_DRIVER_MEASUREMENT_2026-11-27.md)).
 
 ## Phase C: a host that runs Linux code
 
@@ -459,13 +472,21 @@ keyboard and mouse input.
 
 ## Phase F: Vulkan and the first frame
 
-### F1. A Vulkan driver inside a Rosetta process (to build, S; possible right after A6)
+### F1. A Vulkan driver inside a Rosetta process (exists today)
 
 A native x86-64 probe under `spikes/` creates an instance and a device with each
 driver, opens a window through SDL3, and presents a cleared swapchain image. It
 answers Q-6: KosmicKrisp if it can be built for or loaded into an x86-64 process,
 otherwise MoltenVK, which ships a universal library. Measure frame time and shader
 translation time for both when both work.
+
+```bash
+spikes/vulkan-present/run.sh
+```
+
+State: run on 27 November 2026. MoltenVK presents from x86-64 under Rosetta 2 with
+the native build's frame pacing; the SDK's KosmicKrisp loads only in arm64
+processes. Q-6 is answered: MoltenVK ([Vulkan driver measurement](VULKAN_DRIVER_MEASUREMENT_2026-11-27.md)).
 
 ### F2. Instance and device creation (to build, M; after E1)
 
@@ -506,6 +527,6 @@ research prototype, by the [Rosetta horizon decision](ROSETTA_HORIZON_DECISION.m
 | `cs2` is a fixed-address executable inside the first 4 GB | B2 | Ruled out on 27 November 2026: `cs2` is a PIE |
 | Code outside the unwind tables cannot be told from data | B6 | Stop and reassess T-001. Did not happen: separated on 27 November 2026 |
 | Steam on macOS refuses app 730 | D1 | No Steam for the guest; boot as far as the engine goes without it |
-| No x86-64 Vulkan driver works under Rosetta | F1 | Stop and reassess. An arm64 rendering helper is a new project with its own decision record |
+| No x86-64 Vulkan driver works under Rosetta | F1 | Stop and reassess. An arm64 rendering helper is a new project with its own decision record. Did not happen: MoltenVK works, 27 November 2026 |
 | The `fs` rewrite cannot be made safe on real modules | C2, C4 | The own-translator route |
 | The renderer refuses to start without a capability Metal lacks | F2 | Recorded as a hard limit; nothing is patched |

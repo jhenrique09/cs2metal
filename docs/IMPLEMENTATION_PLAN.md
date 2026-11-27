@@ -76,8 +76,9 @@ explicitly before every commit.
 - [x] Check that libstdc++ and libgcc_s 10.3 satisfy the build's symbol versions.
   Done on 27 November 2026: the build needs at most GLIBCXX_3.4.20, CXXABI_1.3.5, and
   GCC_4.0.0; the runtime provides GLIBCXX_3.4.28, CXXABI_1.3.12, and GCC_7.0.0.
-- [ ] **Owner action:** install the Vulkan SDK for macOS and record `vulkaninfo` for
-  each driver (roadmap step A6).
+- [x] **Owner action:** install the Vulkan SDK for macOS and record `vulkaninfo` for
+  each driver (roadmap step A6). Done on 27 November 2026 with SDK 1.4.363.1, per
+  driver and per architecture ([Vulkan driver measurement](VULKAN_DRIVER_MEASUREMENT_2026-11-27.md)).
 
 - [x] `cs2metal tls scan` (roadmap step B5): `fs` accesses by kind, unwind-table
   coverage of executable bytes, uncovered `fs` prefixes, decoder failures, and TLS
@@ -146,10 +147,19 @@ Gate: a window opens and audio plays.
 
 ### M6: Vulkan on Metal
 
-- [ ] Probe for Q-6: an x86-64 Vulkan driver in a Rosetta process presenting to a
-  window. Choose KosmicKrisp or MoltenVK on measurement.
+- [x] Probe for Q-6: an x86-64 Vulkan driver in a Rosetta process presenting to a
+  window. Choose KosmicKrisp or MoltenVK on measurement. Done on 27 November 2026
+  with `spikes/vulkan-present`: MoltenVK presents from x86-64 under Rosetta 2 with
+  the same frame pacing as native; the SDK's KosmicKrisp is arm64 only. MoltenVK is
+  the driver ([Vulkan driver measurement](VULKAN_DRIVER_MEASUREMENT_2026-11-27.md)).
+- [x] Static Vulkan scan of the Linux renderer module (roadmap step B4):
+  `cs2metal vulkan scan` and `vulkan compare`, 6 library tests and a command-line
+  test. Done on 27 November 2026: 68 device extension names, 33 offered by MoltenVK;
+  both drivers report every subgroup operation and BC compression.
 - [ ] Record the renderer's required features and extensions (Q-7), completing the
   [Vulkan research](VULKAN_REQUIREMENTS_RESEARCH_2026-11-27.md) with measurements.
+  The static half is done; what the renderer enables and requires is logged in F2,
+  including whether its subgroup check needs the vertex stage.
 
 First gate, the goal of the roadmap: the game presents its startup screen in its own
 window. Second gate: the main menu renders.

@@ -124,7 +124,7 @@ or the Linux kernel. Their imports bind instead to macOS libraries with the same
 | Linux library | Host replacement | Notes |
 | --- | --- | --- |
 | `libSDL3.so.0` | macOS SDL3, x86-64 build | Windows, input, audio, and Vulkan surface creation. The guest asks SDL for Vulkan instance extensions and receives the Metal surface ones. |
-| `libvulkan.so.1` | Vulkan loader for macOS, x86-64 build | The driver is KosmicKrisp or MoltenVK (open question Q-6). |
+| `libvulkan.so.1` | Vulkan loader for macOS, x86-64 build | The driver is MoltenVK: the only one that loads in an x86-64 process (Q-6, answered on 27 November 2026 by the [Vulkan driver measurement](VULKAN_DRIVER_MEASUREMENT_2026-11-27.md)). |
 | `steamclient.so` | `steamclient.dylib` of the owner's macOS Steam installation | The game's own `libsteam_api.so` stays guest code; only the client library it loads is bridged, with proxied interface objects. See the [Steam bridge design](STEAM_BRIDGE_DESIGN.md). |
 
 The C++ runtime is the opposite case: Linux libstdc++ and libgcc_s are loaded **as
