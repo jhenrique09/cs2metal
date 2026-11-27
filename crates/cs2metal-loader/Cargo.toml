@@ -1,0 +1,29 @@
+[package]
+name = "cs2metal-loader"
+description = "Maps, relocates, and runs Linux x86-64 ELF modules inside the host process"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+cs2metal-elf.workspace = true
+libc.workspace = true
+
+[dev-dependencies]
+cs2metal-elf = { workspace = true, features = ["test-support"] }
+tempfile.workspace = true
+
+# The loader maps memory and calls guest code, which needs `unsafe`. It opts out of
+# the workspace's `forbid(unsafe_code)` here, as AGENTS.md allows, and requires a
+# SAFETY comment on every unsafe block instead.
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+dbg_macro = "warn"
+todo = "warn"
+unwrap_used = "warn"

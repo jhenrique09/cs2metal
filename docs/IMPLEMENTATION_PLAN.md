@@ -110,7 +110,10 @@ and the M2 to M3 scope below is revised to match.
   tracked, so the guard needs no allowlist ([fixtures decision](FIXTURES_DECISION.md)). `cs2metal tls scan`
   agrees with `objdump` on all nine files.
 - [ ] `cs2metal-loader`: map, relocate, bind with versions, IFUNC, `COPY`, init order,
-  static TLS in variant II, the GS bridge, and T-001 behind a flag.
+  static TLS in variant II, the GS bridge, and T-001 behind a flag. First slice done
+  on 27 November 2026: one module mapped privately from a read-only file, relocated,
+  protected with RELRO, initialized, called, and finalized under Rosetta 2, with 5
+  tests (4 per architecture) run by `tools/check.sh` on both arm64 and x86-64.
 - [ ] Acceptance of the [TLS decision](TLS_UNDER_ROSETTA_DECISION.md): fixtures that
   use `__thread`, the stack protector, and threads run correctly with the rewrite.
 

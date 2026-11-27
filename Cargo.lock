@@ -194,6 +194,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "cs2metal-loader"
+version = "0.1.0"
+dependencies = [
+ "cs2metal-elf",
+ "libc",
+ "tempfile",
+]
+
+[[package]]
 name = "cs2metal-vulkan"
 version = "0.1.0"
 dependencies = [

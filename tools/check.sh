@@ -28,6 +28,12 @@ if [[ -f Cargo.toml ]]; then
 
     echo "==> cargo test"
     cargo test --workspace --all-features --locked
+
+    # Guest code runs only in an x86-64 process, under Rosetta 2 on Apple silicon:
+    # the loader is also linted and tested there.
+    echo "==> cargo clippy and test, x86_64-apple-darwin (Rosetta 2)"
+    cargo clippy -p cs2metal-loader --target x86_64-apple-darwin --all-targets --locked -- -D warnings
+    cargo test -p cs2metal-loader --target x86_64-apple-darwin --locked
 fi
 
 echo "==> all checks passed"

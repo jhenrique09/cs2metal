@@ -383,6 +383,17 @@ TLS, `dlopen`; the GS bridge with neutral and host thunks; transform T-001 behin
 flag. Gate: every fixture prints its expected output, and the
 [TLS decision](TLS_UNDER_ROSETTA_DECISION.md) is accepted or revised.
 
+Slices, each with a test that runs guest code under Rosetta 2 in `tools/check.sh`:
+
+1. One module: map, relocate (`RELATIVE`, `GLOB_DAT`, `JUMP_SLOT`, `64`,
+   `IRELATIVE`), protect with RELRO, run initializers and finalizers, call exports.
+   **Done, 27 November 2026:** the `dlopen` fixture's plugin runs its constructor
+   and answers `plugin_answer(20) = 41` inside the x86-64 host.
+2. A symbol scope across modules: versions, weak symbols, interposition, `$ORIGIN`.
+3. TLS and the GS bridge: per-thread blocks, `__tls_get_addr`, T-001 behind a flag,
+   host and neutral thunks, with the `tls` and `stack_guard` fixtures.
+4. The C library the `hello` fixture needs, which meets the C3 bake-off.
+
 ### C3. The libc route, chosen by measurement, then its first slice (to build, M then XL)
 
 Before the large investment, a time-boxed bake-off runs the same C and C++ fixtures

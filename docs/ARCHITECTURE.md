@@ -50,6 +50,10 @@ the thread-pointer swap and the translation of data layouts that differ.
 - `cs2` is a position-independent executable (Q-1, answered on 27 November 2026 by
   the [inventory](LINUX_BUILD_INVENTORY_2026-11-27.md)), so it too goes wherever the
   loader puts it, and the host keeps the default `__PAGEZERO`.
+- Pages are 4 KiB in a Rosetta 2 process, which matches the 4 KiB segment alignment
+  of Linux x86-64 objects, so modules are mapped straight from their files. A native
+  arm64 process has 16 KiB pages and could not map them. The loader refuses with a
+  typed error, as its tests show on both architectures. (CONFIRMED, 27 November 2026)
 
 ## Integrity guard
 
@@ -156,6 +160,6 @@ private facts the bridge relies on are discovered at run time, never hard-coded.
 | `cs2metal` (app) | Command-line front end | M0, `inspect` and `inventory` |
 | `cs2metal-integrity` | Baseline and verification | M1, done |
 | `cs2metal-codescan` | `fs` accesses, unwind coverage, TLS models | M1, done |
-| `cs2metal-loader` | Mapping, relocation, TLS, bridge (`unsafe` allowed) | M2 |
+| `cs2metal-loader` | Mapping, relocation, TLS, bridge (`unsafe` allowed) | M2, first slice: one module mapped, relocated, initialized, and called |
 | `cs2metal-glibc` | glibc ABI layer | M3 |
 | `cs2metal-platform` | SDL, Vulkan, and Steam substitutions | M5 to M7 |
