@@ -11,7 +11,29 @@ discussion and evidence lifecycle.
 
 | Document | Purpose |
 | --- | --- |
+| [Architecture](ARCHITECTURE.md) | Layers, process model, loader, transform registry, bridge, glibc layer, substitution table. |
+| [Implementation plan](IMPLEMENTATION_PLAN.md) | Milestones M0 to M9, their gates and evidence, safety boundary, risks. |
 | [Anti-cheat, integrity, and legal policy](ANTI_CHEAT_AND_INTEGRITY_POLICY.md) | Owner's risk acceptance, the rules that never bend, distribution and licensing. |
+
+## Decision records
+
+| Decision | Status |
+| --- | --- |
+| [The Linux build is the baseline](LINUX_BUILD_BASELINE_DECISION.md) | Accepted, 26 November 2026. |
+| [Thread-local storage under Rosetta](TLS_UNDER_ROSETTA_DECISION.md) | Proposed: rewrite `fs` prefixes to `gs` in private mappings and swap GS at the boundary. Accepted at the M2 gate. |
+
+## Research
+
+| Document | Summary |
+| --- | --- |
+| [Feasibility research, 26 November 2026](FEASIBILITY_RESEARCH_2026-11-26.md) | Prior art, what is known about the Linux build, platform facts, open questions Q-1 to Q-9. |
+| [Rosetta segment probe, 26 November 2026](ROSETTA_SEGMENT_PROBE_2026-11-26.md) | No `fs` base is possible under Rosetta; the GS swap works at 520 ns per pair on an M1 Max. |
+
+## Backlog
+
+| Document | Purpose |
+| --- | --- |
+| [Future work](FUTURE_WORK.md) | Ideas that need a decision record before they enter the plan. |
 
 ## Documentation policy
 

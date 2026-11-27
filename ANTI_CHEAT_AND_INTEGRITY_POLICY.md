@@ -30,7 +30,7 @@ below still apply in full.
 2. **In-memory transforms are registered.** Mapping, relocating, and binding imports
    are what every dynamic loader does and need no further justification. Any other
    change to guest code or data in memory needs an accepted decision record, an
-   entry in the transform registry (see `ARCHITECTURE.md`), and a
+   entry in the transform registry (see [ARCHITECTURE.md](ARCHITECTURE.md)), and a
    load-time counter that the host logs. A transform must be mechanical and
    build-independent: no per-build offsets and no change to game logic.
 3. **No gameplay changes and no advantage.** No memory reading or writing for
