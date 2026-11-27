@@ -979,6 +979,243 @@ extern "C" fn minimize_window(_window: u64) -> bool {
     true
 }
 
+// --- Message boxes -------------------------------------------------------------------
+
+#[link(name = "CoreFoundation", kind = "framework")]
+unsafe extern "C" {
+    fn CFStringCreateWithCString(
+        allocator: *const c_void,
+        text: *const c_char,
+        encoding: u32,
+    ) -> *const c_void;
+    fn CFRelease(object: *const c_void);
+    fn CFUserNotificationDisplayAlert(
+        timeout: f64,
+        flags: usize,
+        icon: *const c_void,
+        sound: *const c_void,
+        localization: *const c_void,
+        header: *const c_void,
+        message: *const c_void,
+        default_button: *const c_void,
+        alternate_button: *const c_void,
+        other_button: *const c_void,
+        response: *mut usize,
+    ) -> i32;
+}
+
+/// `kCFStringEncodingUTF8`.
+const UTF8: u32 = 0x0800_0100;
+
+/// How long a message shown off the main thread stays up unanswered, in seconds:
+/// long enough to read, and an unattended game still ends.
+const ALERT_SECONDS: f64 = 120.0;
+
+/// One button of a message box.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BoxButton {
+    flags: u32,
+    id: i32,
+    text: String,
+}
+
+/// What a message box says and offers.
+#[derive(Debug, PartialEq, Eq)]
+struct MessageBox {
+    title: String,
+    message: String,
+    buttons: Vec<BoxButton>,
+}
+
+impl MessageBox {
+    /// `SDL_MESSAGEBOX_BUTTON_RETURNKEY_DEFAULT`.
+    const RETURN_KEY: u32 = 1;
+    /// `SDL_MESSAGEBOX_BUTTON_ESCAPEKEY_DEFAULT`.
+    const ESCAPE_KEY: u32 = 2;
+
+    /// The buttons in the order an alert offers them: the one the Return key
+    /// chooses first, then the others as the game listed them. An alert has room
+    /// for three.
+    fn offered(&self) -> Vec<&BoxButton> {
+        let first = self
+            .buttons
+            .iter()
+            .position(|b| b.flags & Self::RETURN_KEY != 0)
+            .unwrap_or(0);
+        let mut order: Vec<&BoxButton> = self.buttons.iter().skip(first).take(1).collect();
+        order.extend(
+            self.buttons
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i != first)
+                .map(|(_, b)| b),
+        );
+        order.truncate(3);
+        order
+    }
+
+    /// The id the box is answered with when the alert's `choice` was taken: 0, 1,
+    /// or 2 for a button in the order offered, anything else for an alert nobody
+    /// answered, which is the button the Escape key chooses, or the first offered.
+    fn answer(&self, choice: usize) -> Option<i32> {
+        let offered = self.offered();
+        offered
+            .get(choice)
+            .or_else(|| offered.iter().find(|b| b.flags & Self::ESCAPE_KEY != 0))
+            .or(offered.first())
+            .map(|b| b.id)
+    }
+}
+
+/// # Safety
+/// `text` is null or a NUL-terminated string.
+unsafe fn text_at(text: u64) -> String {
+    if text == 0 {
+        return String::new();
+    }
+    // SAFETY: by the contract above.
+    unsafe { CStr::from_ptr(text as *const c_char) }
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// Reads an `SDL_MessageBoxData`: flags at 0, window at 8, title at 16, message at
+/// 24, the number of buttons at 32, and at 40 the buttons, each 16 bytes of flags,
+/// id, and text.
+///
+/// # Safety
+/// `data` points at an `SDL_MessageBoxData` whose pointers are valid.
+unsafe fn read_message_box(data: u64) -> MessageBox {
+    // SAFETY: by the contract above, for every read below.
+    unsafe {
+        let word = |at: u64| std::ptr::read_unaligned((data + at) as *const u64);
+        let count = std::ptr::read_unaligned((data + 32) as *const i32).clamp(0, 16) as u64;
+        let list = word(40);
+        let button = |i: u64| {
+            let at = list + 16 * i;
+            BoxButton {
+                flags: std::ptr::read_unaligned(at as *const u32),
+                id: std::ptr::read_unaligned((at + 4) as *const i32),
+                text: text_at(std::ptr::read_unaligned((at + 8) as *const u64)),
+            }
+        };
+        MessageBox {
+            title: text_at(word(16)),
+            message: text_at(word(24)),
+            buttons: if list == 0 {
+                Vec::new()
+            } else {
+                (0..count).map(button).collect()
+            },
+        }
+    }
+}
+
+/// Shows a message as a system alert, which needs no thread of its own, with up
+/// to three buttons, and waits for it to be answered or to time out. Returns the
+/// button taken, in the order given, or 3 if nobody answered.
+fn alert(title: &str, message: &str, buttons: &[&str]) -> usize {
+    /// `kCFUserNotificationCancelResponse`, which a timeout also gives.
+    const UNANSWERED: usize = 3;
+    let string = |text: &str| {
+        let Ok(text) = CString::new(text) else {
+            return std::ptr::null();
+        };
+        // SAFETY: a NUL-terminated UTF-8 string, copied into a CFString.
+        unsafe { CFStringCreateWithCString(std::ptr::null(), text.as_ptr(), UTF8) }
+    };
+    let label = |i: usize| buttons.get(i).map_or(std::ptr::null(), |text| string(text));
+    let strings = [string(title), string(message), label(0), label(1), label(2)];
+    let mut response = UNANSWERED;
+    // SAFETY: CFStrings made above or null, which the alert takes as "the default
+    // button" and "no such button"; released after the alert has returned.
+    unsafe {
+        if !strings[0].is_null() && !strings[1].is_null() {
+            let null = std::ptr::null::<c_void>();
+            let shown = CFUserNotificationDisplayAlert(
+                ALERT_SECONDS,
+                0,
+                null,
+                null,
+                null,
+                strings[0],
+                strings[1],
+                strings[2],
+                strings[3],
+                strings[4],
+                &mut response,
+            );
+            if shown != 0 {
+                response = UNANSWERED;
+            }
+        }
+        for string in strings {
+            if !string.is_null() {
+                CFRelease(string);
+            }
+        }
+    }
+    response & 3
+}
+
+/// Whether SDL can show a message box from this thread. SDL shows it on the main
+/// thread and, from any other, waits for the main thread to run it. The game
+/// shows its fatal errors from the thread that met them while its main thread
+/// sleeps until that thread is done, so that wait never ends: the box never
+/// appeared, and the game stayed on a black screen with its error unseen.
+fn sdl_can_show() -> bool {
+    // SAFETY: pthread_main_np has no preconditions.
+    unsafe { libc::pthread_main_np() != 0 }
+}
+
+/// `SDL_ShowMessageBox(data, button)`. The message always goes to the log. On
+/// the main thread SDL shows it; from any other the host shows a system alert
+/// with the box's buttons and answers with the one taken.
+extern "C" fn show_message_box(data: u64, button: u64) -> bool {
+    if data == 0 {
+        return false;
+    }
+    // SAFETY: the guest passes an SDL_MessageBoxData.
+    let shown = unsafe { read_message_box(data) };
+    let offered = shown.offered();
+    let labels: Vec<&str> = offered.iter().map(|b| b.text.as_str()).collect();
+    eprintln!(
+        "cs2metal: the game shows a message: {}: {} [{}]",
+        shown.title,
+        shown.message,
+        labels.join(" | ")
+    );
+    let f = real("SDL_ShowMessageBox");
+    if sdl_can_show() && f != 0 {
+        // SAFETY: the host library's SDL_ShowMessageBox.
+        let f = unsafe { std::mem::transmute::<usize, extern "C" fn(u64, u64) -> bool>(f) };
+        return f(data, button);
+    }
+    let choice = alert(&shown.title, &shown.message, &labels);
+    if let (Some(id), true) = (shown.answer(choice), button != 0) {
+        // SAFETY: the guest passes an int to receive the button's id.
+        unsafe { std::ptr::write_unaligned(button as *mut i32, id) };
+    }
+    true
+}
+
+/// `SDL_ShowSimpleMessageBox(flags, title, message, window)`, as above, with the
+/// one button a simple box has.
+extern "C" fn show_simple_message_box(flags: u32, title: u64, message: u64, window: u64) -> bool {
+    // SAFETY: the guest passes two strings, or null.
+    let (heading, body) = unsafe { (text_at(title), text_at(message)) };
+    eprintln!("cs2metal: the game shows a message: {heading}: {body}");
+    let f = real("SDL_ShowSimpleMessageBox");
+    if sdl_can_show() && f != 0 {
+        // SAFETY: the host library's SDL_ShowSimpleMessageBox.
+        let f =
+            unsafe { std::mem::transmute::<usize, extern "C" fn(u32, u64, u64, u64) -> bool>(f) };
+        return f(flags, title, message, window);
+    }
+    alert(&heading, &body, &[]);
+    true
+}
+
 // --- The screen ----------------------------------------------------------------------
 
 #[link(name = "objc")]
@@ -1350,6 +1587,8 @@ fn wrapper(name: &[u8]) -> Option<u64> {
         b"SDL_GetAudioStreamData" if tracing() => counted_get as *const (),
         b"SDL_PeepEvents" => peep_events as *const (),
         b"SDL_MinimizeWindow" => minimize_window as *const (),
+        b"SDL_ShowMessageBox" => show_message_box as *const (),
+        b"SDL_ShowSimpleMessageBox" => show_simple_message_box as *const (),
         b"SDL_SetWindowSize" => fitted_set_size as *const (),
         b"SDL_SetWindowPosition" => fitted_set_position as *const (),
         b"SDL_SetWindowBordered" => fitted_set_bordered as *const (),
@@ -1432,6 +1671,95 @@ pub(crate) fn bind(table: u64, names: u64, count: u64) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An `SDL_MessageBoxData` as the guest lays it out.
+    #[repr(C)]
+    struct BoxData {
+        flags: u32,
+        window: u64,
+        title: *const c_char,
+        message: *const c_char,
+        count: i32,
+        buttons: *const RawButton,
+        colors: u64,
+    }
+
+    #[repr(C)]
+    struct RawButton {
+        flags: u32,
+        id: i32,
+        text: *const c_char,
+    }
+
+    #[test]
+    fn a_message_box_is_read_and_answered_by_its_buttons() {
+        let (title, message) = (c"Engine Error", c"A file could not be read");
+        let buttons = [
+            RawButton {
+                flags: 2,
+                id: 7,
+                text: c"Cancel".as_ptr(),
+            },
+            RawButton {
+                flags: 0,
+                id: 8,
+                text: c"Retry".as_ptr(),
+            },
+            RawButton {
+                flags: 1,
+                id: 9,
+                text: c"OK".as_ptr(),
+            },
+        ];
+        let mut data = BoxData {
+            flags: 0x10,
+            window: 0,
+            title: title.as_ptr(),
+            message: message.as_ptr(),
+            count: 3,
+            buttons: buttons.as_ptr(),
+            colors: 0,
+        };
+        // SAFETY: a complete SDL_MessageBoxData whose strings and buttons outlive the read.
+        let read = |data: &BoxData| unsafe { read_message_box(data as *const BoxData as u64) };
+        let shown = read(&data);
+        assert_eq!(
+            (shown.title.as_str(), shown.message.as_str()),
+            ("Engine Error", "A file could not be read")
+        );
+        // The Return key's button is offered first, then the others in order.
+        let labels: Vec<&str> = shown.offered().iter().map(|b| b.text.as_str()).collect();
+        assert_eq!(labels, ["OK", "Cancel", "Retry"]);
+        assert_eq!(shown.answer(0), Some(9));
+        assert_eq!(shown.answer(1), Some(7));
+        assert_eq!(shown.answer(2), Some(8));
+        // Nobody answered: the Escape key's button.
+        assert_eq!(shown.answer(3), Some(7));
+
+        // No button asks for a key: the first is offered first, and answers an
+        // alert nobody answered.
+        data.count = 2;
+        let shown = read(&data);
+        assert_eq!(shown.offered()[0].text, "Cancel");
+        let plain = MessageBox {
+            title: String::new(),
+            message: String::new(),
+            buttons: vec![BoxButton {
+                flags: 0,
+                id: 4,
+                text: "Close".into(),
+            }],
+        };
+        assert_eq!(plain.answer(3), Some(4));
+
+        // No buttons, no title.
+        data.count = 0;
+        data.buttons = std::ptr::null();
+        data.title = std::ptr::null();
+        let shown = read(&data);
+        assert_eq!((shown.title.as_str(), shown.answer(0)), ("", None));
+        assert!(shown.offered().is_empty());
+    }
 
     #[test]
     fn the_shim_answers_for_libsdl3_only() {

@@ -52,6 +52,7 @@ names the call.
 | `SDL_MinimizeWindow` | Not done. The game minimizes its window when it loses the focus, and a process started from a terminal starts without it; on macOS a minimized window has no drawable, so the window went to the Dock at once and stayed there. `SDL_VIDEO_MINIMIZE_ON_FOCUS_LOSS` is also set to 0 in the host environment |
 | `SDL_CreateWindowWithProperties` | The window is given the number property `SDL.window.x11.window`, holding its SDL window id. The game keeps its windows by that operating system handle, and its input system finds the window again through it before asking for relative mouse mode or text input. Host SDL's video driver is Cocoa and sets no such property, so the handle read as zero, the window as null, and those calls failed: the pointer stayed visible and free in a match and the console took no text. Nothing else in the game reads the number. The window is also raised once made, since the process does not come to the front by itself |
 | `SDL_SetWindowSize`, `SDL_SetWindowPosition`, `SDL_SetWindowBordered`, `SDL_SetWindowFullscreen`, `SDL_SetWindowFullscreenMode`, `SDL_SyncWindow`, `SDL_RestoreWindow`, `SDL_DestroyWindow`, `SDL_PeepEvents` | The game's video settings offer a window and a "full screen window". For the second it makes a borderless window as large as the display, or asks SDL for full screen, and on Linux the window manager does the rest. On macOS the Dock and the menu bar stayed in front of the borderless window. After each of these calls, and a few times a second where the game takes its events, the bridge looks at the window: while it is shown and either held full screen by SDL or borderless and as large as its display, the application's presentation options hide the Dock and the menu bar, and otherwise they are the default again. `SDL_VIDEO_MAC_FULLSCREEN_SPACES` is also set to 0 in the host environment: in a full-screen Space, changing the display mode left the window with a title bar while SDL reported it full screen |
+| `SDL_ShowMessageBox`, `SDL_ShowSimpleMessageBox` | The game shows its fatal errors in a message box, from the thread that met the error, while its main thread sleeps until that thread is done. Host SDL shows a message box on the main thread and, from any other, waits for the main thread to run it: that wait never ended, the box never appeared, and the game stayed on a black screen with its error unseen (seen on 27 November 2026, when the game could not open its package files under a limit of 256 open files). The message now always goes to the log. On the main thread SDL shows the box. From any other the host shows it as a system alert, which needs no thread of its own, offers up to three of the box's buttons, and closes after two minutes if nobody answers; the game is told the button taken, or the one its Escape key chooses |
 | `SDL_IOFromFile` | A Linux path: it goes through the installation overlay |
 | `SDL_Vulkan_LoadLibrary` | The game would name its Linux loader. Host SDL loads the macOS Vulkan loader, by default the newest Vulkan SDK's, which finds MoltenVK through the SDK's driver manifest unless `VK_DRIVER_FILES` is set |
 
@@ -81,6 +82,15 @@ and pumps its events.
 
 ## What remains
 
+- **A fatal error does not end the game.** After its message is answered, the
+  game's tier-0 library ends the process on purpose with a write to address zero,
+  so that its crash handler writes a minidump. Under cs2metal the thread that
+  makes that write stops there and the process lives on, with its window black:
+  client boots 82 to 84 of 27 November 2026, where the error was forced with a
+  hard limit of 300 open files. The host's handler for fatal signals did not run
+  and no crash minidump was written. Why the fault does not arrive as a signal is
+  not known yet; it belongs with the guest's signal handlers, which are not built.
+  Until then a game that has shown a fatal error must be quit by hand.
 - Other callbacks on host-only threads, such as SDL timers, could use the same guest
   callback thread.
 - `SDL_Vulkan_CreateSurface` takes a `VkInstance`, which must be the host's, so the
