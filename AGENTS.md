@@ -15,8 +15,8 @@ The documentation lives in `docs/`, in this repository. Read
 
 ## Current scope
 
-- Milestone M0: repository foundations, the read-only ELF parser, the installation
-  inventory, and platform probes under `spikes/`.
+- Milestone M0 is done: repository foundations, the read-only ELF parser, the
+  installation inventory, and platform probes under `spikes/`.
 - The target is the native Linux build of Counter-Strike 2 (`game/bin/linuxsteamrt64`).
   The Windows build is out of scope; a Wine-based route already exists elsewhere.
 - Record ideas for later milestones in `docs/FUTURE_WORK.md`; do not add partial
@@ -52,7 +52,14 @@ that need the game are owner actions recorded in `docs/IMPLEMENTATION_PLAN.md`.
 
 ## Commits
 
+- **Every change gets its own commit.** Each feature implemented, each fix, each
+  refactor, and each documentation change is committed as soon as it is complete and
+  `tools/check.sh` passes. Do not leave finished work uncommitted, and do not batch
+  unrelated changes into one commit.
+- A feature and the tests and documentation that belong to it go in the same commit.
+  A fix found while working on something else is committed separately, first.
 - English, imperative subject line under 72 characters, a body that says why.
-- One concern per commit. Keep the tree green at every commit.
+- Keep the tree green at every commit: `tools/check.sh` passes before each one.
 - Update `docs/IMPLEMENTATION_PLAN.md` when a milestone item changes state, with the
-  validation evidence.
+  validation evidence, in the commit that changes it.
+- Do not push, and do not rewrite published history, unless the owner asks.

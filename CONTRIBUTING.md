@@ -28,6 +28,12 @@ commit while any of them fails.
 The repository guard (`tools/repo_guard.py`) rejects these mechanically, and
 `.gitignore` keeps the usual locations out of `git status`.
 
+## Commits
+
+Every change gets its own commit: each feature, fix, refactor, or documentation
+change is committed once it is complete and `tools/check.sh` passes, together with
+its tests. Unrelated changes never share a commit.
+
 ## Commit messages
 
 ```
