@@ -150,7 +150,7 @@ fn uncovered_code_inside_a_section_is_still_counted_by_kind() {
         path: "libnofde.so".to_owned(),
         result: Ok(m),
     }]);
-    assert!(report.contains("| `fs:0` outside unwind ranges | 1 |"));
+    assert!(report.contains("| `fs` decodes unexplained | fs:0 1 |"));
     assert!(report.contains("| sections |"));
 }
 
@@ -177,7 +177,9 @@ fn scans_a_directory_and_renders_a_report_without_the_root() {
     let report = markdown(&entries);
     assert!(!report.contains(&*dir.path().to_string_lossy()));
     assert!(report.contains("| Modules scanned | 1 |"));
-    assert!(report.contains("| `fs:register` accesses | 2 |"));
+    assert!(report.contains(
+        "| `fs` in unwind-described code | fs:0 1, fs:0x28 1, fs:0x30 1, fs:constant 1, fs:register 2 |"
+    ));
 }
 
 #[test]

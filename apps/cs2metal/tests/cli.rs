@@ -160,7 +160,10 @@ fn tls_scan_reports_and_signals_an_unclean_module() {
         "{}",
         String::from_utf8_lossy(&out.stderr)
     );
-    assert!(String::from_utf8_lossy(&out.stdout).contains("| `fs:0x28` accesses | 1 |"));
+    assert!(
+        String::from_utf8_lossy(&out.stdout)
+            .contains("| `fs` in unwind-described code | fs:0x28 1 |")
+    );
 
     let asm = dir.path().join("libasm.so");
     let bytes = ElfBuilder::shared_object("libasm.so")

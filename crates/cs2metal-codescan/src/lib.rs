@@ -2,16 +2,21 @@
 //! T-001) and the TLS layer need to know.
 //!
 //! For each module the scan decodes every instruction inside the code ranges the
-//! `.eh_frame` unwind tables describe, classifies each `fs`-prefixed instruction,
-//! and checks that its `0x64` prefix byte can be located for a same-length rewrite.
-//! Code outside those ranges is swept linearly only to count `fs` prefixes there:
-//! they are what T-001 could not rewrite safely. Code means the executable sections
-//! when the object has a section table, because some linkers map read-only data in
-//! the executable segment, and the executable segments otherwise. The TLS models a
-//! module uses come from its dynamic relocations and from its code.
+//! `.eh_frame` unwind tables describe, then discovers further code by following
+//! direct calls and jumps from the module's own references to its code (see
+//! [`Discovery`]). Each `fs`-prefixed instruction in proven code is classified, and
+//! its `0x64` prefix byte located for a same-length rewrite. The code bytes no rule
+//! proves are swept linearly only to count `fs` decodes there: those inside blocks
+//! that code loads by address and that do not decode as code are data, the rest are
+//! unexplained. Code means the executable sections when the object has a section
+//! table, because some linkers map read-only data in the executable segment, and the
+//! executable segments otherwise. The TLS models a module uses come from its dynamic
+//! relocations and from its code.
 //!
 //! Nothing is modified. Reports derived from Valve's binaries stay local.
 
+mod discover;
+mod fs;
 mod report;
 mod scan;
 mod walk;
@@ -20,6 +25,7 @@ use std::collections::BTreeMap;
 
 use serde::Serialize;
 
+pub use discover::{Discovery, Seed};
 pub use report::markdown;
 pub use scan::scan_module;
 pub use walk::scan_path;
@@ -125,10 +131,17 @@ pub struct ModuleScan {
     /// Covered `fs` accesses whose `0x64` prefix byte was located, so a
     /// same-length rewrite to `0x65` is mechanical.
     pub rewritable: u64,
-    /// `fs`-prefixed instructions a linear sweep finds in uncovered code, by kind.
-    /// They are code without unwind information, or, without a section table,
-    /// possibly data that happens to decode.
+    /// Code reached beyond the unwind tables by following direct calls and jumps,
+    /// and the `fs` accesses found in it.
+    pub discovery: Discovery,
+    /// `fs`-prefixed instructions a linear sweep finds in the code bytes that
+    /// neither the unwind tables nor discovery reach, by kind. They are code no
+    /// rule proves, or data that happens to decode: unexplained either way.
     pub uncovered_fs: BTreeMap<FsAccess, u64>,
+    /// `fs`-prefixed decodes in unexplained bytes at or after an address that
+    /// accepted code loads with `lea` and that does not decode as code: data the
+    /// code refers to, such as tables kept in `.text`.
+    pub data_fs: BTreeMap<FsAccess, u64>,
     /// Instructions inside covered ranges that do not decode.
     pub decode_failures: u64,
     pub tls: TlsModels,
@@ -151,13 +164,25 @@ impl ModuleScan {
         }
     }
 
+    /// Unexplained `fs` decodes that could be real accesses: every kind except
+    /// string instructions, which compilers do not emit.
+    pub fn unexplained_addressed(&self) -> u64 {
+        self.uncovered_fs
+            .iter()
+            .filter(|(k, _)| **k != FsAccess::Unaddressed)
+            .map(|(_, n)| n)
+            .sum()
+    }
+
     /// True when T-001 could rewrite every `fs` access of the module mechanically:
-    /// all found, all located, none outside the unwind tables, nothing undecodable.
+    /// all found in code the unwind tables or discovery prove, all located, nothing
+    /// undecodable, and no unexplained decode that could be a real access.
     pub fn rewrite_is_clean(&self) -> bool {
         self.unwind_error.is_none()
-            && self.uncovered_total() == 0
+            && self.unexplained_addressed() == 0
             && self.decode_failures == 0
             && self.rewritable == self.covered_fs()
+            && self.discovery.rewritable == self.discovery.fs_total()
     }
 }
 
