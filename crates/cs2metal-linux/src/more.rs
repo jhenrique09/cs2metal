@@ -227,6 +227,17 @@ pub(crate) fn answer(f: &SyscallFrame) -> Option<i64> {
                 Ok(p) => result(i64::from(libc::unlink(p.as_ptr()))),
                 Err(e) => e,
             },
+            90 => match host_path(a0, libc::AT_FDCWD, Use::Modify) {
+                Ok(p) => result(i64::from(libc::chmod(p.as_ptr(), a1 as libc::mode_t))),
+                Err(e) => e,
+            },
+            91 => {
+                if crate::paths::is_installation_file(fd) {
+                    -30 // EROFS: the installation is read-only to the guest
+                } else {
+                    result(i64::from(libc::fchmod(fd, a1 as libc::mode_t)))
+                }
+            }
             95 => i64::from(libc::umask(a0 as libc::mode_t)),
             96 => result(i64::from(libc::gettimeofday(
                 a0 as *mut libc::timeval,
@@ -321,6 +332,15 @@ pub(crate) fn answer(f: &SyscallFrame) -> Option<i64> {
                     a2 as *mut c_char,
                     a3 as usize,
                 ) as i64),
+                Err(e) => e,
+            },
+            268 => match host_path(a1, dirfd(a0 as i64), Use::Modify) {
+                Ok(p) => result(i64::from(libc::fchmodat(
+                    dirfd(a0 as i64),
+                    p.as_ptr(),
+                    a2 as libc::mode_t,
+                    0,
+                ))),
                 Err(e) => e,
             },
             269 => match host_path(a1, dirfd(a0 as i64), Use::Read) {

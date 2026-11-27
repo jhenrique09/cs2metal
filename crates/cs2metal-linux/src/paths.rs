@@ -24,8 +24,22 @@ pub struct Overlay {
 
 static OVERLAY: OnceLock<Overlay> = OnceLock::new();
 
+/// The installation's path with its symbolic links resolved, as the host names a
+/// descriptor's file (`F_GETPATH`) and the working directory.
+static CANONICAL: OnceLock<PathBuf> = OnceLock::new();
+
 pub(crate) fn set_overlay(overlay: Overlay) {
+    if let Ok(canonical) = std::fs::canonicalize(&overlay.installation) {
+        let _ = CANONICAL.set(canonical);
+    }
     let _ = OVERLAY.set(overlay);
+}
+
+/// `path` relative to the installation, under either of its names.
+fn inside_installation<'p>(path: &'p Path, overlay: &Overlay) -> Option<&'p Path> {
+    path.strip_prefix(&overlay.installation)
+        .ok()
+        .or_else(|| path.strip_prefix(CANONICAL.get()?).ok())
 }
 
 /// What the guest does with a path.
@@ -88,6 +102,15 @@ fn directory_of(dirfd: libc::c_int) -> Option<PathBuf> {
     Some(PathBuf::from(std::ffi::OsStr::from_bytes(&buf[..end])))
 }
 
+/// Whether the open descriptor `fd` is a file of the installation itself (not of
+/// the overlay), which no change of metadata may reach.
+pub(crate) fn is_installation_file(fd: libc::c_int) -> bool {
+    let Some(overlay) = OVERLAY.get() else {
+        return false;
+    };
+    directory_of(fd).is_some_and(|p| inside_installation(&p, overlay).is_some())
+}
+
 fn c_path(p: &Path) -> Option<CString> {
     CString::new(p.as_os_str().as_bytes()).ok()
 }
@@ -114,7 +137,7 @@ pub(crate) fn resolve<'a>(
         }
     };
     let full = absolute(raw, &base);
-    let Ok(relative) = full.strip_prefix(&overlay.installation) else {
+    let Some(relative) = inside_installation(&full, overlay) else {
         // A path inside the overlay, or anywhere else, is used as it is.
         return Ok(Cow::Borrowed(path));
     };
@@ -166,7 +189,7 @@ mod tests {
         let upper = root.join("upper");
         std::fs::create_dir_all(installation.join("game/cfg")).expect("mkdir");
         std::fs::write(installation.join("game/cfg/a.cfg"), b"original").expect("write");
-        let _ = OVERLAY.set(Overlay {
+        set_overlay(Overlay {
             installation: installation.clone(),
             upper: upper.clone(),
         });
@@ -216,6 +239,24 @@ mod tests {
         assert_eq!(
             std::fs::read(installation.join("game/cfg/a.cfg")).expect("read"),
             b"original"
+        );
+
+        // A descriptor of an installation file is recognized, so that fchmod can
+        // refuse it; the overlay's copy is not.
+        let below = std::fs::File::open(installation.join("game/cfg/b.cfg")).expect("open");
+        let above = std::fs::File::open(upper.join("game/cfg/a.cfg")).expect("open");
+        use std::os::fd::AsRawFd;
+        assert!(is_installation_file(below.as_raw_fd()));
+        assert!(!is_installation_file(above.as_raw_fd()));
+
+        // A path relative to a directory descriptor, which the host names by its
+        // canonical path, is still inside the installation.
+        let dir = std::fs::File::open(installation.join("game")).expect("open");
+        let relative = CString::new("cfg/b.cfg").expect("path");
+        let written = resolve(&relative, dir.as_raw_fd(), Use::Replace).expect("write");
+        assert!(
+            written.to_bytes().ends_with(b"upper/game/cfg/b.cfg"),
+            "{written:?} goes to the overlay"
         );
         let _ = std::fs::remove_dir_all(root);
     }
