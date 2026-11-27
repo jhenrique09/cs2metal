@@ -312,6 +312,9 @@ extern "C" fn open_audio_device_stream(
     // SAFETY: the host library's SDL_OpenAudioDeviceStream.
     let f: extern "C" fn(u32, u64, u64, u64) -> u64 = unsafe { std::mem::transmute(f) };
     let stream = f(device, spec, 0, 0);
+    if stream != 0 && tracing() {
+        trace_device_mix(stream);
+    }
     if stream == 0 || callback == 0 || spec == 0 {
         return stream;
     }
@@ -367,6 +370,37 @@ counted!(counted_flush, "SDL_FlushAudioStream");
 counted!(counted_pause, "SDL_PauseAudioDevice");
 counted!(counted_resume, "SDL_ResumeAudioDevice");
 counted!(counted_get, "SDL_GetAudioStreamData");
+
+/// Host SDL's postmix callback, for the trace: the loudest sample of what the
+/// device is about to play, on SDL's device thread.
+extern "C" fn postmix(_userdata: u64, _spec: u64, buffer: u64, len: i32) {
+    static CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    if n.is_power_of_two() && buffer != 0 && len > 0 {
+        // SAFETY: SDL passes `len` bytes of float samples.
+        let peak = unsafe { peak(buffer, len as usize) };
+        eprintln!("cs2metal: SDL device mix of {len} bytes, peak {peak:.4} (call {n})");
+    }
+}
+
+/// Watches what the device `stream` is bound to plays, for the trace.
+fn trace_device_mix(stream: u64) {
+    let (device, set) = (
+        real("SDL_GetAudioStreamDevice"),
+        real("SDL_SetAudioPostmixCallback"),
+    );
+    if device == 0 || set == 0 {
+        return;
+    }
+    // SAFETY: the host library's functions of these names.
+    let (device, set) = unsafe {
+        (
+            std::mem::transmute::<usize, extern "C" fn(u64) -> u32>(device),
+            std::mem::transmute::<usize, extern "C" fn(u32, u64, u64) -> bool>(set),
+        )
+    };
+    set(device(stream), postmix as *const () as u64, 0);
+}
 
 /// What host SDL calls the audio device `device`, for the trace.
 fn device_name(device: u32) -> String {
