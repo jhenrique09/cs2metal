@@ -136,15 +136,100 @@ fn guest_function(name: &CStr, host: u64) -> u64 {
     if name.to_bytes() == b"vkCmdBindDescriptorSets" {
         BIND_DESCRIPTOR_SETS.store(host, std::sync::atomic::Ordering::Release);
     }
-    if tracing() && host != 0 {
-        if let Some(w) = traced_wrapper(name.to_bytes(), host) {
-            return host_entry(w);
-        }
+    if !tracing() {
+        return match wrapper(name.to_bytes()) {
+            Some(w) => host_entry(w),
+            None => host_entry(host),
+        };
     }
-    match wrapper(name.to_bytes()) {
+    let traced = (host != 0)
+        .then(|| traced_wrapper(name.to_bytes(), host))
+        .flatten();
+    let entry = match traced.or_else(|| wrapper(name.to_bytes())) {
         Some(w) => host_entry(w),
         None => host_entry(host),
+    };
+    counted_entry(name, entry)
+}
+
+/// The calls the guest made of each Vulkan function since the last report, for
+/// the trace. A counter lives for the process: the entry that counts holds its
+/// address.
+static CALLS: Mutex<Vec<(String, &'static std::sync::atomic::AtomicU64)>> = Mutex::new(Vec::new());
+
+/// `entry` behind a stub that counts the calls of `name`; `entry` itself if the
+/// stub cannot be made.
+fn counted_entry(name: &CStr, entry: u64) -> u64 {
+    if entry == 0 {
+        return 0;
     }
+    let name = name.to_string_lossy();
+    let counter: &'static std::sync::atomic::AtomicU64 = {
+        let Ok(mut calls) = CALLS.lock() else {
+            return entry;
+        };
+        match calls.iter().find(|(n, _)| *n == name) {
+            Some((_, counter)) => counter,
+            None => {
+                let counter = Box::leak(Box::new(std::sync::atomic::AtomicU64::new(0)));
+                calls.push((name.into_owned(), counter));
+                counter
+            }
+        }
+    };
+    let counter = std::ptr::from_ref(counter) as u64;
+    STATE
+        .lock()
+        .ok()
+        .and_then(|mut s| {
+            s.as_mut()
+                .and_then(|s| s.bridge.counted(entry, counter).ok())
+        })
+        .unwrap_or(entry)
+}
+
+/// How many functions a report of calls names at most.
+const CALLS_NAMED: usize = 48;
+
+/// The report's line for the calls of a period in which `presents` frames were
+/// presented: the functions called most, as calls a present, and the sum.
+fn calls_line(counts: &mut Vec<(String, u64)>, presents: usize) -> Option<String> {
+    counts.retain(|(_, n)| *n > 0);
+    if counts.is_empty() || presents == 0 {
+        return None;
+    }
+    counts.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    let per = |n: u64| n as f64 / presents as f64;
+    let total: u64 = counts.iter().map(|(_, n)| n).sum();
+    let named = counts
+        .iter()
+        .take(CALLS_NAMED)
+        .map(|(name, n)| format!("{name} {:.1}", per(*n)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "cs2metal: vulkan calls a present: {:.0} in all, of {} functions: {named}",
+        per(total),
+        counts.len()
+    ))
+}
+
+/// Takes the counts since the last report.
+fn take_calls() -> Vec<(String, u64)> {
+    CALLS.lock().map_or_else(
+        |_| Vec::new(),
+        |calls| {
+            calls
+                .iter()
+                .map(|(name, counter)| {
+                    (
+                        name.clone(),
+                        counter.swap(0, std::sync::atomic::Ordering::Relaxed),
+                    )
+                })
+                .collect()
+        },
+    )
 }
 
 /// `vkGetInstanceProcAddr(instance, name)`.
@@ -716,6 +801,9 @@ fn note_present() {
         if let Some(line) = pacing_line(&mut intervals) {
             eprintln!("{line}");
         }
+        if let Some(line) = calls_line(&mut take_calls(), intervals.len()) {
+            eprintln!("{line}");
+        }
     }
 }
 
@@ -917,6 +1005,23 @@ mod tests {
             "cs2metal: presents: 100 in the period, median 10.0 ms, 99th percentile 25.0 ms, \
              longest 300.0 ms, 2 over twice the median"
         );
+    }
+
+    #[test]
+    fn a_report_of_calls_names_the_most_called_first() {
+        assert!(calls_line(&mut Vec::new(), 10).is_none());
+        let mut counts = vec![
+            ("vkCmdBindPipeline".to_owned(), 250),
+            ("vkQueueSubmit".to_owned(), 0),
+            ("vkCmdDraw".to_owned(), 1000),
+            ("vkQueuePresentKHR".to_owned(), 100),
+        ];
+        assert_eq!(
+            calls_line(&mut counts, 100).expect("line"),
+            "cs2metal: vulkan calls a present: 14 in all, of 3 functions: vkCmdDraw 10.0, \
+             vkCmdBindPipeline 2.5, vkQueuePresentKHR 1.0"
+        );
+        assert!(calls_line(&mut counts, 0).is_none());
     }
 
     #[test]

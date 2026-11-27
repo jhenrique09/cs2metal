@@ -77,3 +77,26 @@ fn host_code_calls_a_guest_callback_in_the_guest_domain() {
     let again = unsafe { thread.call(into_host, &[0]) }.expect("call");
     assert_eq!(again, got - 5);
 }
+
+static COUNTED_CALLS: AtomicU64 = AtomicU64::new(0);
+
+extern "C" fn sum(a: u64, b: u64, c: u64, d: u64, e: u64, f: u64) -> u64 {
+    a + 2 * b + 3 * c + 4 * d + 5 * e + 6 * f
+}
+
+/// A counted entry adds one to its word on each call and passes every argument
+/// on to the entry behind it.
+#[test]
+fn a_counted_entry_counts_and_passes_the_call_on() {
+    let thread = Namespace::new().thread().expect("guest thread");
+    let mut bridge = Bridge::new().expect("bridge");
+    let into_host = bridge.host(sum as *const () as u64).expect("host stub");
+    let counter = std::ptr::from_ref(&COUNTED_CALLS) as u64;
+    let counted = bridge.counted(into_host, counter).expect("counted stub");
+    for round in 1..=3u64 {
+        // SAFETY: the stub counts, then enters sum from the guest domain.
+        let got = unsafe { thread.call(counted, &[1, 2, 3, 4, 5, round]) }.expect("call");
+        assert_eq!(got, 1 + 4 + 9 + 16 + 25 + 6 * round);
+        assert_eq!(COUNTED_CALLS.load(Ordering::Relaxed), round);
+    }
+}

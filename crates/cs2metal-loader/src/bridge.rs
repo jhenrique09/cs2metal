@@ -926,6 +926,22 @@ impl Bridge {
         Ok(stub)
     }
 
+    /// An entry that adds one to the 64-bit word at `counter` and goes on to
+    /// `entry`, with every argument register and the stack as the caller left
+    /// them: for a trace that counts calls. The word must live as long as the
+    /// bridge. The entry runs in the caller's domain and changes only `r10`,
+    /// `r11`, and the flags, which no call preserves.
+    pub fn counted(&mut self, entry: u64, counter: u64) -> Result<u64> {
+        let mut code = Vec::with_capacity(27);
+        code.extend([0x49, 0xbb]); // movabs r11, counter
+        code.extend(counter.to_le_bytes());
+        code.extend([0xf0, 0x49, 0xff, 0x03]); // lock inc qword ptr [r11]
+        code.extend([0x49, 0xba]); // movabs r10, entry
+        code.extend(entry.to_le_bytes());
+        code.extend([0x41, 0xff, 0xe2]); // jmp r10
+        self.place(&code)
+    }
+
     /// As [`Bridge::host`], with the registered return fixup applied to what the
     /// host function returns.
     pub fn host_fixed(&mut self, target: u64) -> Result<u64> {
