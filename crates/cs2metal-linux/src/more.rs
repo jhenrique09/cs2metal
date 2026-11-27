@@ -180,6 +180,46 @@ fn kill(signal: u64) -> i64 {
     }
 }
 
+/// The host's number for a Linux signal a process may send another, or `None`.
+fn host_signal(linux: u64) -> Option<libc::c_int> {
+    Some(match linux {
+        1 => libc::SIGHUP,
+        2 => libc::SIGINT,
+        3 => libc::SIGQUIT,
+        9 => libc::SIGKILL,
+        10 => libc::SIGUSR1,
+        12 => libc::SIGUSR2,
+        15 => libc::SIGTERM,
+        17 => libc::SIGCHLD,
+        18 => libc::SIGCONT,
+        19 => libc::SIGSTOP,
+        _ => return None,
+    })
+}
+
+/// `kill(pid, signal)`. To this process (its pid or 0), as [`kill`]; to another,
+/// through the host, so that signal 0 tells whether that process is alive. A
+/// program that finds a lock or semaphore left by an earlier instance asks
+/// exactly that.
+fn kill_process(pid: u64, signal: u64) -> i64 {
+    let pid = pid as i32;
+    // SAFETY: getpid has no preconditions.
+    let own = unsafe { libc::getpid() };
+    if pid == own || pid == 0 {
+        return kill(signal);
+    }
+    let host = if signal == 0 {
+        0
+    } else {
+        match host_signal(signal) {
+            Some(s) => s,
+            None => return EINVAL,
+        }
+    };
+    // SAFETY: kill only delivers a signal or probes a pid.
+    result(i64::from(unsafe { libc::kill(pid, host) }))
+}
+
 /// Handles the system calls of this module.
 pub(crate) fn answer(f: &SyscallFrame) -> Option<i64> {
     let (a0, a1, a2, a3) = (f.arg0, f.arg1, f.arg2, f.arg3);
@@ -203,7 +243,7 @@ pub(crate) fn answer(f: &SyscallFrame) -> Option<i64> {
             32 => result(i64::from(libc::dup(fd))),
             33 => result(i64::from(libc::dup2(fd, a1 as libc::c_int))),
             35 => sleep(a0),
-            62 => kill(a1),
+            62 => kill_process(a0, a1),
             // flock: the same operations (LOCK_SH, LOCK_EX, LOCK_NB, LOCK_UN).
             73 => result(i64::from(libc::flock(fd, a1 as libc::c_int))),
             74 | 75 => result(i64::from(libc::fsync(fd))),
@@ -303,6 +343,7 @@ pub(crate) fn answer(f: &SyscallFrame) -> Option<i64> {
             }
             217 => fds::getdents64(fd, a1, a2),
             230 => clock_nanosleep(a0, a1, a2),
+            // tgkill: threads of this process only.
             234 => kill(a2),
             258 => match host_path(a1, dirfd(a0 as i64), Use::Replace) {
                 Ok(p) => result(i64::from(libc::mkdirat(

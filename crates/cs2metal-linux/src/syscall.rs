@@ -489,6 +489,21 @@ mod tests {
     }
 
     #[test]
+    fn kill_probes_other_processes_on_the_host() {
+        let mut child = std::process::Command::new("/bin/sleep")
+            .arg("30")
+            .spawn()
+            .expect("child");
+        let pid = u64::from(child.id());
+        assert_eq!(call(62, [pid, 0, 0, 0, 0, 0]), 0, "alive");
+        assert_eq!(call(62, [pid, 15, 0, 0, 0, 0]), 0, "SIGTERM");
+        let _ = child.wait();
+        assert_eq!(call(62, [pid, 0, 0, 0, 0, 0]), -3, "ESRCH once it is gone");
+        let own = u64::from(std::process::id());
+        assert_eq!(call(62, [own, 0, 0, 0, 0, 0]), 0, "this process");
+    }
+
+    #[test]
     fn flock_and_utimes_reach_the_file() {
         let path = std::env::temp_dir().join(format!("cs2metal-flock-{}", std::process::id()));
         let file = std::fs::File::create(&path).expect("file");
