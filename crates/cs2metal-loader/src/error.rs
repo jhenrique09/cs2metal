@@ -50,6 +50,11 @@ pub enum Error {
     },
     /// Guest calls take at most six integer arguments.
     TooManyArguments(usize),
+    /// Code probed as neutral changed the word at this offset of the control
+    /// block GS pointed at: it uses thread data and needs a host thunk.
+    NotNeutral {
+        offset: u64,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -93,6 +98,10 @@ impl fmt::Display for Error {
                 )
             }
             Self::TooManyArguments(n) => write!(f, "{n} arguments; guest calls take at most 6"),
+            Self::NotNeutral { offset } => write!(
+                f,
+                "code probed as neutral wrote thread data at offset {offset:#x}"
+            ),
         }
     }
 }

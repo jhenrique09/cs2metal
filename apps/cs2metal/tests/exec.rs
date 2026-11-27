@@ -97,6 +97,58 @@ fn cxx() {
 }
 
 #[test]
+fn clock() {
+    run("clock", &[], false);
+}
+
+/// The system calls numbered `number` in a traced run of a fixture, or `None`
+/// where the fixtures are not built.
+fn traced_calls(name: &str, number: u64, variables: &[(&str, &str)]) -> Option<usize> {
+    let fixtures = root().join("target/fixtures");
+    let glibc = root().join("target/guest-glibc");
+    if !fixtures.join(name).exists() || !glibc.join("ld-linux-x86-64.so.2").exists() {
+        eprintln!("skipped: {name}; run tools/fixtures.sh and tools/guest-glibc.sh");
+        return None;
+    }
+    let out = Command::new(env!("CARGO_BIN_EXE_cs2metal"))
+        .current_dir(&fixtures)
+        .env("CS2METAL_TRACE", "1")
+        .envs(variables.iter().copied())
+        .arg("exec")
+        .arg("--glibc")
+        .arg(&glibc)
+        .arg(name)
+        .output()
+        .expect("run cs2metal exec");
+    assert_eq!(out.status.code(), Some(0), "{name} traced");
+    let call = format!("cs2metal: syscall {number}(");
+    Some(
+        String::from_utf8_lossy(&out.stderr)
+            .lines()
+            .filter(|line| line.starts_with(&call))
+            .count(),
+    )
+}
+
+/// The guest reads its clocks through the vDSO: of the more than a thousand
+/// reads the clock fixture makes, only those the vDSO leaves to the system call
+/// reach the host (the thread's processor time, and the unknown clock). Without
+/// the vDSO every read is a system call.
+#[test]
+fn the_clock_is_read_without_system_calls() {
+    const CLOCK_GETTIME: u64 = 228;
+    let Some(with) = traced_calls("clock", CLOCK_GETTIME, &[]) else {
+        return;
+    };
+    assert_eq!(with, 2, "clock_gettime system calls with the vDSO");
+    let without = traced_calls("clock", CLOCK_GETTIME, &[("CS2METAL_NO_VDSO", "1")]).expect("run");
+    assert!(
+        without > 1000,
+        "{without} clock_gettime system calls without the vDSO"
+    );
+}
+
+#[test]
 fn tls_from_four_threads() {
     run("tls", &[], false);
 }

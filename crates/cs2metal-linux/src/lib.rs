@@ -10,6 +10,7 @@
 
 mod black_movie;
 mod brk;
+mod clock;
 mod epoll;
 // Guest code runs only in an x86-64 process; elsewhere the report is not installed.
 #[cfg_attr(not(target_arch = "x86_64"), allow(dead_code))]
@@ -26,6 +27,7 @@ mod steam;
 mod syscall;
 mod threads;
 mod translate;
+mod vdso;
 mod vulkan;
 
 use std::convert::Infallible;
@@ -277,7 +279,9 @@ pub fn exec(launch: &Launch) -> Result<Infallible, Error> {
             libc::getegid(),
         )
     };
-    let aux = [
+    // The clocks answer the guest's system calls whether or not it has a vDSO.
+    clock::init();
+    let mut aux = vec![
         (at::PHDR, phdr),
         (at::PHENT, 56),
         (at::PHNUM, phnum),
@@ -297,6 +301,9 @@ pub fn exec(launch: &Launch) -> Result<Infallible, Error> {
         (at::PLATFORM, 0),
         (at::EXECFN, 0),
     ];
+    if let Some(vdso) = vdso::start() {
+        aux.push((vdso::AT_SYSINFO_EHDR, vdso));
+    }
 
     // SAFETY: a fresh anonymous mapping for the guest's main stack.
     let stack = unsafe {

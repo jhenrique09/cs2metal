@@ -57,4 +57,7 @@ $cc $common $link -shared -fstack-protector-all "$src/tlsprobe_lib.c" \
     -Wl,-soname,libtlsprobe.so -o libtlsprobe.so
 $cc $common $pie $link -rdynamic -pthread "$src/tlsprobe_main.c" -L. -ltlsprobe $origin -o tlsprobe
 
+# clock: the clocks through the vDSO, and sleeps and waits timed against them.
+$cc $common $pie $link -pthread "$src/clock.c" -o clock
+
 sha256sum $(ls | sort) > SHA256SUMS

@@ -1,0 +1,11 @@
+the monotonic clock never goes back: ok
+gettimeofday agrees with the realtime clock: ok
+time agrees with the realtime clock: ok
+the realtime clock is after 2025: ok
+a sleep lasts as long by the monotonic clock: ok
+a sleep until a monotonic deadline ends on it: ok
+a wait with a monotonic deadline ends on it: ok
+a wait with a realtime deadline ends on it: ok
+the thread's processor-time clock answers: ok
+an unknown clock is refused: ok
+exit: 0

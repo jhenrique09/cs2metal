@@ -93,19 +93,26 @@ fn clock_nanosleep(clock: u64, flags: u64, request: u64) -> i64 {
     if flags & 1 == 0 {
         return sleep(request);
     }
-    let Some(clock) = crate::translate::clock(clock) else {
-        return EINVAL;
+    // The clock the guest computed its deadline from.
+    let clock = clock & 0xffff_ffff;
+    let current = match crate::clock::now_ns(clock) {
+        Some(ns) => i128::from(ns),
+        None => {
+            let Some(clock) = crate::translate::cpu_clock(clock) else {
+                return EINVAL;
+            };
+            let mut now = libc::timespec {
+                tv_sec: 0,
+                tv_nsec: 0,
+            };
+            // SAFETY: clock_gettime writes into the struct.
+            unsafe { libc::clock_gettime(clock, &mut now) };
+            now.tv_sec as i128 * 1_000_000_000 + now.tv_nsec as i128
+        }
     };
     // SAFETY: the guest passes a struct timespec.
     let [s, ns] = unsafe { std::ptr::read_unaligned(request as *const [i64; 2]) };
-    let mut now = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    // SAFETY: clock_gettime writes into the struct.
-    unsafe { libc::clock_gettime(clock, &mut now) };
     let target = s as i128 * 1_000_000_000 + ns as i128;
-    let current = now.tv_sec as i128 * 1_000_000_000 + now.tv_nsec as i128;
     let wait = (target - current).max(0);
     let ts = libc::timespec {
         tv_sec: (wait / 1_000_000_000) as libc::time_t,
@@ -173,18 +180,19 @@ fn statfs(st: &libc::statfs, out: u64) -> i64 {
 /// guest's pointer would leave the upper half of the guest's `tv_usec` as it
 /// was: whatever the guest's stack held there.
 fn gettimeofday(tv: u64, tz: u64) -> i64 {
-    let mut now = libc::timeval {
-        tv_sec: 0,
-        tv_usec: 0,
+    let Some(ns) = crate::clock::now_ns(crate::clock::REALTIME) else {
+        return EINVAL;
     };
-    // SAFETY: gettimeofday writes into the struct.
-    if unsafe { libc::gettimeofday(&mut now, std::ptr::null_mut()) } != 0 {
-        return result(-1);
-    }
     if tv != 0 {
         // SAFETY: the guest passes a Linux struct timeval.
         unsafe {
-            std::ptr::write_unaligned(tv as *mut [i64; 2], [now.tv_sec, i64::from(now.tv_usec)]);
+            std::ptr::write_unaligned(
+                tv as *mut [i64; 2],
+                [
+                    (ns / crate::clock::NANOS) as i64,
+                    (ns % crate::clock::NANOS / 1000) as i64,
+                ],
+            );
         }
     }
     if tz != 0 {
@@ -359,7 +367,8 @@ pub(crate) fn answer(f: &SyscallFrame) -> Option<i64> {
             146 => 99, // sched_get_priority_max
             147 => 0,  // sched_get_priority_min
             201 => {
-                let now = libc::time(std::ptr::null_mut());
+                let wall = crate::clock::now_ns(crate::clock::REALTIME).unwrap_or(0);
+                let now = (wall / crate::clock::NANOS) as i64;
                 if a0 != 0 {
                     std::ptr::write_unaligned(a0 as *mut i64, now);
                 }

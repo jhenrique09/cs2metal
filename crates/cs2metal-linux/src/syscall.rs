@@ -244,8 +244,20 @@ fn prlimit64(resource: u64, new: u64, old: u64) -> i64 {
     0
 }
 
+/// `clock_gettime(clock, timespec)`. The guest reaches this only without the
+/// vDSO, or for a clock the vDSO leaves to the system call.
 fn clock_gettime(id: u64, out: u64) -> i64 {
-    let Some(clock) = translate::clock(id) else {
+    if out == 0 {
+        return EFAULT;
+    }
+    // A clockid_t is an int: the register's upper half is not part of it.
+    let id = id & 0xffff_ffff;
+    if let Some(ns) = crate::clock::now_ns(id) {
+        // SAFETY: the guest passes a struct timespec.
+        unsafe { crate::clock::write_timespec(out, ns) };
+        return 0;
+    }
+    let Some(clock) = translate::cpu_clock(id) else {
         return EINVAL;
     };
     // SAFETY: struct timespec has the same layout on both systems on x86-64.

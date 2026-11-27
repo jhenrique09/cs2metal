@@ -105,18 +105,6 @@ unsafe fn nanos(ts: u64) -> u64 {
         .saturating_add(ns.max(0) as u64)
 }
 
-fn now_ns(clock: libc::clockid_t) -> u64 {
-    let mut ts = libc::timespec {
-        tv_sec: 0,
-        tv_nsec: 0,
-    };
-    // SAFETY: clock_gettime writes into the struct.
-    unsafe { libc::clock_gettime(clock, &mut ts) };
-    (ts.tv_sec.max(0) as u64)
-        .saturating_mul(1_000_000_000)
-        .saturating_add(ts.tv_nsec.max(0) as u64)
-}
-
 /// `futex(addr, op, val, timeout, addr2, val3)`.
 pub(crate) fn futex(addr: u64, op: u64, val: u64, timeout: u64, _addr2: u64, _val3: u64) -> i64 {
     const WAIT: u64 = 0;
@@ -144,12 +132,14 @@ pub(crate) fn futex(addr: u64, op: u64, val: u64, timeout: u64, _addr2: u64, _va
                 if cmd == WAIT {
                     t
                 } else {
-                    let base = if op & CLOCK_REALTIME != 0 {
-                        now_ns(libc::CLOCK_REALTIME)
+                    // The clock the guest read to make its deadline: the same
+                    // one, or the wait ends early or late by their difference.
+                    let clock = if op & CLOCK_REALTIME != 0 {
+                        crate::clock::REALTIME
                     } else {
-                        now_ns(libc::CLOCK_MONOTONIC)
+                        crate::clock::MONOTONIC
                     };
-                    t.saturating_sub(base)
+                    t.saturating_sub(crate::clock::now_ns(clock).unwrap_or(0))
                 }
             });
             let p = addr as *mut libc::c_void;

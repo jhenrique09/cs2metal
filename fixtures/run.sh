@@ -34,4 +34,5 @@ run dlopen ./dlopen
 run ifunc ./ifunc
 run scope ./scope
 run tlsprobe ./tlsprobe
+run clock ./clock
 exit $status

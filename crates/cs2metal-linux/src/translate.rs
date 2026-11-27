@@ -164,16 +164,14 @@ impl From<&libc::stat> for LinuxStat {
     }
 }
 
-/// The macOS clock for a Linux clock id.
-pub fn clock(linux: u64) -> Option<libc::clockid_t> {
-    Some(match linux {
-        0 | 5 => libc::CLOCK_REALTIME,      // REALTIME, REALTIME_COARSE
-        1 | 6 | 7 => libc::CLOCK_MONOTONIC, // MONOTONIC, MONOTONIC_COARSE, BOOTTIME
-        2 => libc::CLOCK_PROCESS_CPUTIME_ID,
-        3 => libc::CLOCK_THREAD_CPUTIME_ID,
-        4 => libc::CLOCK_MONOTONIC_RAW,
-        _ => return None,
-    })
+/// The macOS clock for a Linux processor-time clock id. Every other clock is
+/// read by [`crate::clock`], which needs no thread data for it.
+pub fn cpu_clock(linux: u64) -> Option<libc::clockid_t> {
+    match linux {
+        crate::clock::PROCESS_CPUTIME => Some(libc::CLOCK_PROCESS_CPUTIME_ID),
+        crate::clock::THREAD_CPUTIME => Some(libc::CLOCK_THREAD_CPUTIME_ID),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

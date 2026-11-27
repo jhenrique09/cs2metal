@@ -706,6 +706,58 @@ impl HostBlock {
     }
 }
 
+/// What [`probe_neutral`] fills its control block with. As a pointer it is not
+/// canonical, so code that follows one of these words faults.
+const POISON: u64 = 0xdead_0000_0000_0000;
+
+/// Runs `f(arg)` in the guest domain of a control block that holds no thread
+/// data, to show that `f` is neutral: that it may be called from guest code
+/// without a switch to the host domain.
+///
+/// GS points at a block of poison words for the call. macOS code that needs the
+/// thread's data reads it through GS: `errno`, `pthread_self`, thread-local
+/// variables, and every lock of libSystem. Reading a poison word and following it
+/// stops the process, and a word written is reported as [`Error::NotNeutral`], so
+/// a return with `Ok` says `f` did neither on the path it took. It says nothing of
+/// paths it did not take, such as a library's error handling.
+///
+/// For tests and diagnosis: the calling thread's host block registration is put
+/// back as it was, but the call must not be made while a guest thunk of this
+/// thread is in progress.
+pub fn probe_neutral(f: extern "C" fn(u64) -> u64, arg: u64) -> Result<u64> {
+    if !cfg!(target_arch = "x86_64") {
+        return Err(Error::ForeignHost);
+    }
+    let key = block_key().ok_or(Error::ForeignHost)?;
+    // SAFETY: reading this thread's value of a key this module made.
+    let registered = unsafe { libc::pthread_getspecific(key) };
+    let region = Region::reserve(tcb::SIZE)?;
+    region.map_zero(0, tcb::SIZE)?;
+    let tp = region.address();
+    let block = HostBlock::new(tp)?;
+    let expected = |offset: u64| {
+        if offset == tcb::HOST_BLOCK {
+            block.address()
+        } else {
+            POISON | offset
+        }
+    };
+    for offset in (0..tcb::SIZE).step_by(8) {
+        region.write_u64(offset, expected(offset))?;
+    }
+    // SAFETY: tp is a control block of this thread whose host block holds this
+    // thread's TSD base and tp as the guest pointer; f takes one integer.
+    let value = unsafe { call_guest(tp, f as usize as u64, &[arg, 0, 0, 0, 0, 0]) };
+    // SAFETY: putting this thread's value of the key back.
+    unsafe { libc::pthread_setspecific(key, registered) };
+    for offset in (0..tcb::SIZE).step_by(8) {
+        if region.read_u64(offset)? != expected(offset) {
+            return Err(Error::NotNeutral { offset });
+        }
+    }
+    Ok(value)
+}
+
 /// Makes `tp` a control block the bridge can use: its system call slot and its
 /// host block pointer. The block must be writable for 0x88 bytes.
 ///

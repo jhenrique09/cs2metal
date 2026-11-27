@@ -83,6 +83,11 @@ kernel would:
 - Map ld.so, build the initial stack (arguments, environment, auxiliary vector with
   `AT_PHDR`, `AT_ENTRY`, `AT_BASE`, `AT_PAGESZ`, `AT_RANDOM`, `AT_HWCAP`), and enter it
   with GS at a fresh control block.
+- Make the vDSO and name it in the auxiliary vector (`AT_SYSINFO_EHDR`), as the
+  kernel does: a one-page ELF object the host builds in memory, whose three
+  symbols (`__vdso_clock_gettime`, `__vdso_gettimeofday`, `__vdso_time`, version
+  `LINUX_2.6`) jump to neutral host functions. glibc finds them as it does on
+  Linux and reads the clocks without a system call (see Time, below).
 - ld.so then does everything `ld.so` does: it opens and maps `cs2` and every library
   through system calls, relocates, binds with versions, runs IFUNC resolvers, lays out
   TLS, and later serves `dlopen`. Each of those system calls reaches the host.
@@ -115,7 +120,12 @@ with its decision record and the counter the host logs at load time.
 - **Host domain:** the GS base points at the macOS TSD array of the thread.
 - Every bound host function is reached through a thunk. A *host* thunk switches to
   the host domain for the call and back on return. A *neutral* function touches no
-  macOS thread data and is called directly.
+  macOS thread data and is called directly: it reads nothing through GS, takes no
+  lock of libSystem, allocates nothing, and cannot panic. The neutral functions
+  are `__tls_get_addr`, `__stack_chk_fail`, and the clocks behind the vDSO. That a
+  function is neutral is tested, not assumed: `probe_neutral` runs it with GS at
+  a block of poison words, which following stops the process and writing is
+  reported.
 - Calls from macOS into guest code (thread start routines, SDL callbacks, signal
   handlers, sort comparators, `atexit` handlers) switch the other way.
 - The signal entry detects which domain was interrupted and restores the host
@@ -177,8 +187,17 @@ that made it.
   period, which shows where a thread that never returns is, with its registers.
   SIGTERM and SIGINT are the exception that is delivered: they become SDL's quit
   event, so the game shuts itself down as it does from its menu.
-- Time: there is no vDSO, so `clock_gettime` and `gettimeofday` are system calls,
-  answered with the host clock and counted for performance.
+- Time: the guest reads its clocks through the vDSO, in its own domain, with no
+  system call and no GS switch. Before the vDSO, in a match, the game's main
+  thread spent 13% of its processor time in `clock_gettime` system calls
+  ([measurements](PERFORMANCE_AB_2026-11-27.md)). One function answers every
+  reader of a clock (the vDSO, the `clock_gettime`, `gettimeofday`, and `time`
+  system calls, and the absolute deadlines of `futex` and `clock_nanosleep`), so
+  a deadline is compared with the clock it was computed from. The monotonic
+  clocks are `mach_absolute_time`, `CLOCK_BOOTTIME` is `mach_continuous_time`,
+  and the wall clock is `gettimeofday`. The processor-time clocks need the
+  thread's own state: the vDSO answers `-ENOSYS` for them, and glibc makes the
+  system call. `CS2METAL_NO_VDSO=1` starts the guest without the vDSO.
 
 ## Substitution table
 
