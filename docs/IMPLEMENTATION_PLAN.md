@@ -212,10 +212,14 @@ Gate: a window opens and audio plays.
 First gate, the goal of the roadmap: the game presents its startup screen in its own
 window. Second gate: the main menu renders.
 
-Not passed yet: the window and the software splash appear through the
-[SDL bridge](SDL_BRIDGE.md), and the renderer's swapchain presents on MoltenVK
-through the [Vulkan bridge](VULKAN_BRIDGE.md), twice, before stopping while the
-window is not in front ([what the client's window shows](CLIENT_RENDERING_2026-11-27.md)).
+Both passed on 27 November 2026
+([the client's first frames](CLIENT_FIRST_FRAMES_2026-11-27.md)): through the
+[SDL bridge](SDL_BRIDGE.md) and the [Vulkan bridge](VULKAN_BRIDGE.md), on MoltenVK
+(Vulkan SDK 1.4.363.1), the renderer presents the startup sequence, the main menu,
+and a practice match the owner started, 2,048 presents in client boot 42's 85
+seconds. The owner's photographs show the menu with its panels and the match with
+map, weapon, and HUD. The logs are `runs/client-36.err` and `runs/client-42.err`.
+The owner hears no sound yet.
 
 ### M7: Steam
 

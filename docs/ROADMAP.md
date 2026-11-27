@@ -549,7 +549,10 @@ State: the bridge is built, 27 November 2026 ([SDL bridge](SDL_BRIDGE.md)): the
 game's `libSDL3.so.0` is answered with a shim bound by name to the Vulkan SDK's
 universal SDL 3, 1,270 of its 1,302 functions, with guest callbacks through the
 guest thunk. The game's window opens through it, on the main thread
-([first client boots](FIRST_CLIENT_BOOT_2026-11-27.md)); input is not yet measured.
+([first client boots](FIRST_CLIENT_BOOT_2026-11-27.md)). The owner started a practice
+match from the menu with the mouse
+([the client's first frames](CLIENT_FIRST_FRAMES_2026-11-27.md)); keyboard input and
+mouse look are not yet measured.
 
 ## Phase F: Vulkan and the first frame
 
@@ -592,11 +595,17 @@ swapchain; the first frames. **Gate, and the goal of this roadmap: the game pres
 its startup screen in its own window.** Record a screenshot description, the log,
 and the driver used in the implementation plan.
 
-State: **not met yet** ([what the client's window shows](CLIENT_RENDERING_2026-11-27.md)).
-The Valve logo the owner photographed on 27 November 2026 is the game's software
-splash, drawn with SDL surfaces. The renderer's swapchain is created on MoltenVK
-and presents twice, then stops while the window is not in front. The client
-reaches its main menu state.
+State: **gate met on 27 November 2026**
+([the client's first frames](CLIENT_FIRST_FRAMES_2026-11-27.md)). The renderer
+presents the main menu and a practice match on MoltenVK, 2,048 presents in an
+85-second boot, at about 96 frames per second by the game's own counter. Three
+faults stood in the way: `gettimeofday` wrote the host's `struct timeval` into the
+guest's, the audio callback was called before the game resumed its device and
+without the stream's lock, and MoltenVK reads through the null descriptor sets the
+renderer binds. The earlier record
+([what the client's window shows](CLIENT_RENDERING_2026-11-27.md)) read the stall as
+a matter of the window's focus; it was not. Open: the owner hears no sound, and one
+boot aborted on events taken off the main thread.
 
 ## After the first frame
 
