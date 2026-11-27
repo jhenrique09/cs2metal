@@ -169,7 +169,7 @@ pub fn markdown(entries: &[Entry]) -> String {
             by_kind(&m.data_fs),
             by_kind(&m.uncovered_fs),
             m.decode_failures,
-            m.tls.summary(&m.fs_accesses).join(", "),
+            m.tls_summary().join(", "),
             if m.rewrite_is_clean() {
                 "yes"
             } else {

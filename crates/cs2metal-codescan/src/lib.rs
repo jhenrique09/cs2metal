@@ -86,6 +86,9 @@ pub struct TlsModels {
     pub tls_block_bytes: u64,
     /// `DF_STATIC_TLS`: the module needs static TLS space.
     pub static_tls_flag: bool,
+    /// The module is an executable (it has a program interpreter), the only kind
+    /// of module that may use local-exec TLS.
+    pub executable: bool,
 }
 
 impl TlsModels {
@@ -102,7 +105,13 @@ impl TlsModels {
         {
             models.push("initial-exec");
         }
-        if code.get(&FsAccess::ConstantOffset).copied().unwrap_or(0) > 0 {
+        // Local-exec reaches a variable at a constant offset from the thread
+        // pointer: either `fs:offset` directly, or, as gcc emits it, a load of the
+        // thread pointer from `fs:0` followed by address arithmetic. Only an
+        // executable with its own TLS block may do the second.
+        let constant = code.get(&FsAccess::ConstantOffset).copied().unwrap_or(0) > 0;
+        let thread_pointer = code.get(&FsAccess::ThreadPointer).copied().unwrap_or(0) > 0;
+        if constant || (self.executable && self.tls_block_bytes > 0 && thread_pointer) {
             models.push("local-exec");
         }
         models
@@ -150,6 +159,16 @@ pub struct ModuleScan {
 impl ModuleScan {
     pub fn covered_fs(&self) -> u64 {
         self.fs_accesses.values().sum()
+    }
+
+    /// The TLS models in use, from relocations and from every `fs` access in
+    /// proven code, unwind-described or discovered.
+    pub fn tls_summary(&self) -> Vec<&'static str> {
+        let mut code = self.fs_accesses.clone();
+        for (kind, n) in &self.discovery.fs_accesses {
+            *code.entry(*kind).or_default() += n;
+        }
+        self.tls.summary(&code)
     }
 
     pub fn uncovered_total(&self) -> u64 {

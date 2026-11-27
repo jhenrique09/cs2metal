@@ -100,6 +100,7 @@ pub fn scan_module(data: &[u8], elf: &Elf) -> ModuleScan {
             initial_exec_relocations: count(R_X86_64_TPOFF64),
             tls_block_bytes: elf.tls.map_or(0, |t| t.memory_size),
             static_tls_flag: elf.flags.static_tls,
+            executable: elf.interpreter.is_some(),
         },
         ..ModuleScan::default()
     };

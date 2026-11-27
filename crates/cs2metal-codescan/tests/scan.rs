@@ -194,3 +194,25 @@ fn string_instructions_are_not_thread_pointer_reads() {
     assert_eq!(m.uncovered_fs.get(&FsAccess::Unaddressed), Some(&2));
     assert_eq!(m.uncovered_fs.get(&FsAccess::ThreadPointer), None);
 }
+
+#[test]
+fn a_thread_pointer_load_is_local_exec_only_in_an_executable_with_tls() {
+    // mov rax, fs:0; lea rax, [rax - 8]; ret: how gcc reaches a local-exec variable.
+    let code = [
+        0x64, 0x48, 0x8b, 0x04, 0x25, 0, 0, 0, 0, 0x48, 0x8d, 0x40, 0xf8, 0xc3,
+    ];
+    let fde = [(0, code.len() as u64)];
+    let exe = scan(ElfBuilder::pie().tls(0, 16, 8).code(&code, &fde));
+    assert_eq!(exe.tls_summary(), ["local-exec"]);
+    let lib = scan(
+        ElfBuilder::shared_object("libtp.so")
+            .tls(0, 16, 8)
+            .code(&code, &fde),
+    );
+    assert!(
+        lib.tls_summary().is_empty(),
+        "a library may not use local-exec"
+    );
+    let no_tls = scan(ElfBuilder::pie().code(&code, &fde));
+    assert!(no_tls.tls_summary().is_empty());
+}
