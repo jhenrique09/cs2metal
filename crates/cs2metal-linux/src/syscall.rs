@@ -177,6 +177,55 @@ pub(crate) fn readlink(path: u64, buf: u64, size: u64) -> i64 {
     result(unsafe { libc::readlink(path.as_ptr(), buf as *mut c_char, size as usize) } as i64)
 }
 
+/// The open files the guest is told it may have, and that the host makes true
+/// before the guest starts: `OPEN_MAX`, the most macOS grants a process without
+/// privilege.
+const OPEN_FILES: u64 = 10240;
+
+/// Raises the soft limit on open files to [`OPEN_FILES`], or to the hard limit if
+/// that is lower, and returns the limit in force.
+///
+/// A process started by launchd, as an application is, and one started from a
+/// shell that did not raise it, have a soft limit of 256. The game keeps more
+/// than 500 of its package files open at once, and where it cannot open one it
+/// stops with a fatal error about reading it.
+pub(crate) fn raise_open_files() -> u64 {
+    let mut limit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: getrlimit fills the struct it is given.
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } != 0 {
+        return 0;
+    }
+    let wanted = OPEN_FILES.min(limit.rlim_max);
+    if limit.rlim_cur < wanted {
+        let raised = libc::rlimit {
+            rlim_cur: wanted,
+            rlim_max: limit.rlim_max,
+        };
+        // SAFETY: setrlimit reads the struct; a soft limit at or under the hard one.
+        if unsafe { libc::setrlimit(libc::RLIMIT_NOFILE, &raised) } == 0 {
+            return wanted;
+        }
+    }
+    limit.rlim_cur
+}
+
+/// The soft limit on open files as the guest is told it: the host's, and no more
+/// than [`OPEN_FILES`].
+fn open_files() -> u64 {
+    let mut limit = libc::rlimit {
+        rlim_cur: 0,
+        rlim_max: 0,
+    };
+    // SAFETY: getrlimit fills the struct it is given.
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) } != 0 {
+        return OPEN_FILES;
+    }
+    limit.rlim_cur.min(OPEN_FILES)
+}
+
 fn prlimit64(resource: u64, new: u64, old: u64) -> i64 {
     const RLIMIT_STACK: u64 = 3;
     const RLIMIT_NOFILE: u64 = 7;
@@ -184,7 +233,7 @@ fn prlimit64(resource: u64, new: u64, old: u64) -> i64 {
     if old != 0 {
         let (cur, max) = match resource {
             RLIMIT_STACK => (8 << 20, u64::MAX),
-            RLIMIT_NOFILE => (10240, 10240),
+            RLIMIT_NOFILE => (open_files(), OPEN_FILES),
             _ => (u64::MAX, u64::MAX),
         };
         // SAFETY: the guest passes a struct rlimit64 of two u64 words.
@@ -489,6 +538,35 @@ mod tests {
             return_address: 0,
         };
         answer(&mut frame) as i64
+    }
+
+    /// A process started as an application has a soft limit of 256 open files:
+    /// the host raises it, and tells the guest the limit that is in force.
+    #[test]
+    fn the_open_file_limit_is_raised_and_reported() {
+        let mut limit = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        // SAFETY: getrlimit fills the struct; setrlimit reads it.
+        unsafe {
+            assert_eq!(libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit), 0);
+            // As launchd starts a process, but never above what is already open.
+            limit.rlim_cur = limit.rlim_cur.min(256);
+            assert_eq!(libc::setrlimit(libc::RLIMIT_NOFILE, &limit), 0);
+        }
+        let wanted = OPEN_FILES.min(limit.rlim_max);
+        assert_eq!(raise_open_files(), wanted);
+        // SAFETY: as above.
+        unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) };
+        assert_eq!(limit.rlim_cur, wanted);
+
+        // prlimit64(0, RLIMIT_NOFILE, NULL, &old) answers the same soft limit.
+        let mut old = [0u64; 2];
+        assert_eq!(call(302, [0, 7, 0, old.as_mut_ptr() as u64, 0, 0]), 0);
+        assert_eq!(old, [wanted, OPEN_FILES]);
+        // Raising again changes nothing.
+        assert_eq!(raise_open_files(), wanted);
     }
 
     #[test]

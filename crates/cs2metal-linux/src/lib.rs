@@ -240,6 +240,7 @@ pub fn exec(launch: &Launch) -> Result<Infallible, Error> {
     }
     fault::install();
     fault::watch_thread();
+    syscall::raise_open_files();
     set_syscall_handler(syscall::handle);
 
     // ld.so runs as the program and loads the real one: ld.so --library-path

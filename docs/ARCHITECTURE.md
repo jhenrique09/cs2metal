@@ -146,6 +146,11 @@ that made it.
 - Linux-only files and calls the game reads are synthesized: `/proc/self/exe`,
   `/proc/self/maps`, `/proc/cpuinfo`, `/proc/meminfo`, `getrandom`, `uname`,
   `prlimit64`.
+- Open files: a process that launchd starts, as an application is, has a soft
+  limit of 256 open files, and so has one started from a shell that did not raise
+  it. The game keeps more than 500 of its package files open, and stops with a
+  fatal error where it cannot open one. The host raises the soft limit to 10240
+  before the guest starts, and `prlimit64` answers with the limit in force.
 - The installation overlay: the game writes into its own installation
   (configuration, logs, caches). No write reaches it. Every guest path inside the
   installation is looked up first in an overlay directory outside it; a write goes
