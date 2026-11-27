@@ -212,3 +212,23 @@ fn lists_the_address_of_every_prefix_byte_to_rewrite() {
         m.rewritable + m.discovery.rewritable
     );
 }
+
+#[test]
+fn follows_execution_past_the_end_of_a_frame_description() {
+    // As glibc's clone: the FDE ends right before the system call, and the code
+    // goes on.
+    let mut code = Vec::new();
+    code.extend([0xb8, 0x38, 0, 0, 0]); // mov eax, 56: the FDE ends after this
+    code.extend(READ_TP); // not described, but reached by falling through
+    code.push(RET);
+    let m = scan(ElfBuilder::shared_object("libfall.so").code(&code, &[(0, 5)]));
+    assert_eq!(m.discovery.seeds.get(&Seed::FallThrough), Some(&1));
+    assert_found_one_thread_pointer_read(&m);
+
+    // A range that ends in ret does not fall through.
+    let mut ends = vec![RET];
+    ends.extend([0x64, 0x8b, 0x00]); // unexplained bytes after it
+    let m = scan(ElfBuilder::shared_object("libret.so").code(&ends, &[(0, 1)]));
+    assert_eq!(m.discovery.seeds.get(&Seed::FallThrough), None);
+    assert_eq!(m.uncovered_fs.get(&FsAccess::RegisterRelative), Some(&1));
+}

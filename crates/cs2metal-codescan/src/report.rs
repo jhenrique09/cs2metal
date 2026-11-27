@@ -125,7 +125,7 @@ pub fn markdown(entries: &[Entry]) -> String {
             format!("{} and {}", d.conflicts, d.invalid),
         ),
         (
-            "`lea` targets discarded as data",
+            "Tentative components discarded (lea targets, fall-throughs)",
             format!("{} ({} bytes)", d.rejected, d.rejected_bytes),
         ),
         (

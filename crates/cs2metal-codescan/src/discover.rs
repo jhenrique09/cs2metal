@@ -10,7 +10,10 @@
 //!
 //! A `lea` with a RIP-relative operand also names code when it loads a callback,
 //! but it names data just as often: some hand-written code keeps its tables in
-//! `.text`. Such a target is followed *tentatively*, together with everything it
+//! `.text`. And an unwind-described range whose last instruction lets execution
+//! continue (not a jump, a return, or a call that never returns) runs into the
+//! bytes after it, as glibc's `clone` does around its system call. Such a target
+//! is followed *tentatively*, together with everything it
 //! reaches, and the whole component is discarded if any of it overlaps code already
 //! decoded, fails to decode, or is an `fs` string instruction, which compilers do
 //! not emit. Discarded components are counted, never hidden.
@@ -36,6 +39,10 @@ use crate::fs::{access, prefix_offset};
 pub enum Seed {
     /// A direct call or jump target found in code the unwind tables describe.
     UnwindCode,
+    /// The byte after an unwind-described range whose last instruction lets
+    /// execution continue: hand-written code that ends a frame description before
+    /// it ends the code, as glibc's `clone` does around its system call.
+    FallThrough,
     /// A defined function symbol in the dynamic symbol table.
     Export,
     /// The ELF entry point.
@@ -51,8 +58,9 @@ pub enum Seed {
 }
 
 impl Seed {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::UnwindCode,
+        Self::FallThrough,
         Self::Export,
         Self::Entry,
         Self::Initializer,
@@ -63,6 +71,7 @@ impl Seed {
     pub fn label(self) -> &'static str {
         match self {
             Self::UnwindCode => "branch from unwind-described code",
+            Self::FallThrough => "fall-through past unwind-described code",
             Self::Export => "exported function",
             Self::Entry => "entry point",
             Self::Initializer => "DT_INIT or DT_FINI",
@@ -91,11 +100,11 @@ pub struct Discovery {
     pub invalid: u64,
     /// Calls not followed past because the callee does not return.
     pub noreturn_calls: u64,
-    /// Tentative components discarded as data, and their bytes.
+    /// Tentative components discarded, and their bytes.
     pub rejected: u64,
     pub rejected_bytes: u64,
-    /// Where each discarded component started: an address accepted code loads
-    /// with `lea` and that does not decode as code. Sorted; not serialized.
+    /// Where each discarded `lea` component started: an address accepted code
+    /// loads and that does not decode as code. Sorted; not serialized.
     #[serde(skip)]
     pub data_starts: Vec<u64>,
     /// Addresses of the located prefix bytes in discovered code. Not serialized.
@@ -212,7 +221,8 @@ pub(crate) struct Discoverer<'a, 'e> {
     /// Trusted seeds.
     work: Vec<u64>,
     /// `lea` targets, to be tried one component at a time.
-    pending: Vec<u64>,
+    /// Tentative seeds (`lea` targets, fall-throughs), one component each.
+    pending: Vec<(u64, Seed)>,
     /// GOT slot or function address to the name of the function behind it.
     names: HashMap<u64, &'e str>,
     callee_cache: HashMap<u64, bool>,
@@ -274,6 +284,8 @@ impl<'a, 'e> Discoverer<'a, 'e> {
         let len = (end - start) as usize;
         let mut failures = 0;
         let mut direct = Vec::new();
+        let mut falls_through = false;
+        let mut last = Instruction::default();
         {
             let region = &mut self.regions[ri];
             let bytes = &region.bytes[off..off + len];
@@ -291,14 +303,38 @@ impl<'a, 'e> Discoverer<'a, 'e> {
                 region.state[off + pos + 1..off + end].fill(FDE_BODY);
                 visit(&instruction, &bytes[pos..end]);
                 direct.extend(direct_target(&instruction));
-                self.pending.extend(address_taken(&instruction));
+                self.pending
+                    .extend(address_taken(&instruction).map(|t| (t, Seed::AddressTaken)));
+                falls_through = pos + instruction.len() == len
+                    && matches!(
+                        instruction.flow_control(),
+                        FlowControl::Next
+                            | FlowControl::ConditionalBranch
+                            | FlowControl::Call
+                            | FlowControl::IndirectCall
+                            | FlowControl::XbeginXabortXend
+                    );
+                last = instruction;
             }
+        }
+        // A call to a function that never returns ends the code, even without a
+        // jump: compilers end functions that way, and the next bytes are another
+        // function or padding.
+        if falls_through {
+            falls_through = match last.flow_control() {
+                FlowControl::Call => direct_target(&last).is_none_or(|t| self.returns(t)),
+                FlowControl::IndirectCall => !self.slot_is_noreturn(&last),
+                _ => true,
+            };
         }
         for t in direct {
             if self.state(t) == Some(UNKNOWN) {
                 *self.out.seeds.entry(Seed::UnwindCode).or_default() += 1;
                 self.work.push(t);
             }
+        }
+        if falls_through {
+            self.pending.push((end, Seed::FallThrough));
         }
         failures
     }
@@ -357,6 +393,16 @@ impl<'a, 'e> Discoverer<'a, 'e> {
         returns
     }
 
+    /// Whether an indirect call goes through a GOT slot bound to a function that
+    /// never returns.
+    fn slot_is_noreturn(&self, i: &Instruction) -> bool {
+        let slot = i
+            .is_ip_rel_memory_operand()
+            .then(|| i.ip_rel_memory_address());
+        slot.and_then(|s| self.names.get(&s).copied())
+            .is_some_and(is_noreturn)
+    }
+
     /// The GOT slot a PLT stub at `addr` jumps through, if it is one.
     fn plt_slot(&self, addr: u64) -> Option<u64> {
         let (ri, off) = self.locate(addr)?;
@@ -373,21 +419,22 @@ impl<'a, 'e> Discoverer<'a, 'e> {
         None
     }
 
-    /// Follows the trusted seeds, then tries each `lea` target as a tentative
-    /// component.
+    /// Follows the trusted seeds, then tries each `lea` target and fall-through as
+    /// a tentative component.
     pub fn run(&mut self) {
         let trusted = std::mem::take(&mut self.work);
-        self.component(trusted, false);
-        while let Some(t) = self.pending.pop() {
+        self.component(trusted, None);
+        while let Some((t, kind)) = self.pending.pop() {
             if self.state(t) == Some(UNKNOWN) {
-                self.component(vec![t], true);
+                self.component(vec![t], Some(kind));
             }
         }
     }
 
     /// Decodes every path from `seeds`. A tentative component that shows any sign
     /// of data is undone as a whole.
-    fn component(&mut self, mut work: Vec<u64>, tentative: bool) {
+    fn component(&mut self, mut work: Vec<u64>, seed_kind: Option<Seed>) {
+        let tentative = seed_kind.is_some();
         let seed = work.first().copied().filter(|_| tentative);
         let mut c = Component::default();
         let mut instruction = Instruction::default();
@@ -474,11 +521,7 @@ impl<'a, 'e> Discoverer<'a, 'e> {
                         }
                     }
                     FlowControl::IndirectCall => {
-                        let slot = instruction
-                            .is_ip_rel_memory_operand()
-                            .then(|| instruction.ip_rel_memory_address());
-                        let name = slot.and_then(|s| self.names.get(&s).copied());
-                        if name.is_some_and(is_noreturn) {
+                        if self.slot_is_noreturn(&instruction) {
                             c.noreturn_calls += 1;
                             break;
                         }
@@ -491,12 +534,15 @@ impl<'a, 'e> Discoverer<'a, 'e> {
                 }
             }
         }
-        self.settle(c, tentative, seed);
+        self.settle(c, seed_kind, seed);
     }
 
-    fn settle(&mut self, c: Component, tentative: bool, seed: Option<u64>) {
+    fn settle(&mut self, c: Component, kind: Option<Seed>, seed: Option<u64>) {
         if c.data {
-            self.out.data_starts.extend(seed);
+            // A lea target that does not decode is data the code refers to.
+            if kind == Some(Seed::AddressTaken) {
+                self.out.data_starts.extend(seed);
+            }
             for (ri, pos, end) in c.marks {
                 self.regions[ri].state[pos..end].fill(UNKNOWN);
             }
@@ -504,8 +550,8 @@ impl<'a, 'e> Discoverer<'a, 'e> {
             self.out.rejected_bytes += c.bytes;
             return;
         }
-        if tentative {
-            *self.out.seeds.entry(Seed::AddressTaken).or_default() += 1;
+        if let Some(kind) = kind {
+            *self.out.seeds.entry(kind).or_default() += 1;
         }
         let out = &mut self.out;
         out.reached_bytes += c.bytes;
@@ -518,7 +564,8 @@ impl<'a, 'e> Discoverer<'a, 'e> {
             out.rewritable += u64::from(site.is_some());
             out.sites.extend(site);
         }
-        self.pending.extend(c.address_taken);
+        self.pending
+            .extend(c.address_taken.into_iter().map(|t| (t, Seed::AddressTaken)));
     }
 
     pub fn into_parts(mut self) -> (Vec<Region<'a>>, Discovery) {
