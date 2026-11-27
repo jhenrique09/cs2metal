@@ -170,13 +170,19 @@ fixtures, under Rosetta 2, on the rebuilt glibc and the runtime's C++ libraries.
 
 ### M4: engine boot, offline
 
-- [ ] `cs2` starts with the integrity guard passing and reaches the engine's own
-  initialization logs, with every unresolved import named.
+- [x] `cs2` starts with the integrity guard passing and reaches the engine's own
+  initialization logs, with every unresolved import named. Done on 27 November
+  2026 ([first boot](FIRST_ENGINE_BOOT_2026-11-27.md)).
 
-- [ ] Boot as a dedicated server with the empty render system (roadmap step C5).
+- [x] Boot as a dedicated server with the empty render system (roadmap step C5).
+  Done on 27 November 2026: `de_dust2` loaded and the server ran 651 seconds until
+  its timeout, logged on to Steam anonymously, with no fatal error
+  ([ten-minute run](DEDICATED_SERVER_RUN_2026-11-27.md)).
 
 Gate: the boot reaches the first SDL or Vulkan call, and the dedicated server loads a
 map and keeps running for ten minutes.
+Passed on 27 November 2026: the first boot reached the engine's `dlopen` of SDL, and
+the dedicated server ran a map for 651 seconds.
 
 ### M5: SDL3 substitution
 

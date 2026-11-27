@@ -492,6 +492,11 @@ networking, so it validates the whole CPU side before phases E and F, and decoup
 the boot from the Vulkan probe. Gate: the server loads a map and keeps running for
 ten minutes.
 
+State: **gate met on 27 November 2026**
+([ten-minute run](DEDICATED_SERVER_RUN_2026-11-27.md)). With sockets emulated, the
+server loads `de_dust2`, logs on to Steam anonymously through the bridge, and ran
+651 seconds until its timeout, with no fatal error.
+
 ## Phase D: Steam
 
 Design and rules: [STEAM_BRIDGE_DESIGN.md](STEAM_BRIDGE_DESIGN.md). In short, the
