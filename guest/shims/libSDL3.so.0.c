@@ -30,7 +30,11 @@ __attribute__((visibility("hidden"))) unsigned long cs2metal_sdl_table[COUNT];
 
 __asm__(".text\n" SDL_SHIM_NAMES(STUB));
 
-#include <pthread.h>
+/* glibc's thread functions, declared here so that the shim needs no C library
+   headers and builds with any compiler that targets x86-64 Linux. */
+typedef unsigned long pthread_t;
+int pthread_create(pthread_t *thread, const void *attributes, void *(*start)(void *), void *argument);
+int pthread_detach(pthread_t thread);
 
 /* cs2metal's private system calls: fill `table` for `names`; wait for the next
    guest callback to run. */
