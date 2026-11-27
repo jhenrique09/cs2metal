@@ -75,6 +75,10 @@ enum Command {
         glibc: PathBuf,
         #[arg(long, default_value = DEFAULT_BASELINE)]
         baseline: PathBuf,
+        /// Where the game's writes into its installation go instead; by default
+        /// a sibling directory named after it with `.overlay`.
+        #[arg(long)]
+        overlay_dir: Option<PathBuf>,
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<String>,
     },
@@ -278,8 +282,16 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             runtime_dir,
             glibc,
             baseline,
+            overlay_dir,
             args,
-        } => run_game(&game_dir, &runtime_dir, &glibc, &baseline, args),
+        } => run_game(
+            &game_dir,
+            &runtime_dir,
+            &glibc,
+            &baseline,
+            overlay_dir,
+            args,
+        ),
         Command::Exec {
             glibc,
             library_path,
@@ -304,6 +316,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
                 program,
                 args,
                 env,
+                overlay: None,
             };
             match cs2metal_linux::exec(&launch) {
                 Ok(never) => match never {},
@@ -376,6 +389,7 @@ fn run_game(
     runtime_dir: &Path,
     glibc: &Path,
     baseline: &Path,
+    overlay_dir: Option<PathBuf>,
     args: Vec<String>,
 ) -> Result<ExitCode, String> {
     if !verify_installation(game_dir, baseline)? {
@@ -402,6 +416,17 @@ fn run_game(
         "LANG=C.UTF-8".to_owned(),
         format!("LD_LIBRARY_PATH={}", bin.display()),
     ];
+    let installation = absolute(game_dir)?;
+    let upper = match overlay_dir {
+        Some(d) => absolute(&d)?,
+        None => {
+            let mut name = installation.file_name().unwrap_or_default().to_owned();
+            name.push(".overlay");
+            installation.with_file_name(name)
+        }
+    };
+    std::fs::create_dir_all(&upper).map_err(|e| format!("{}: {e}", upper.display()))?;
+    eprintln!("cs2metal: the game's writes go to {}", upper.display());
     std::env::set_current_dir(&game).map_err(|e| format!("{}: {e}", game.display()))?;
     let launch = cs2metal_linux::Launch {
         ld_so: glibc.join("ld-linux-x86-64.so.2"),
@@ -409,6 +434,10 @@ fn run_game(
         program: bin.join("cs2"),
         args,
         env,
+        overlay: Some(cs2metal_linux::Overlay {
+            installation,
+            upper,
+        }),
     };
     eprintln!("cs2metal: starting {}", launch.program.display());
     match cs2metal_linux::exec(&launch) {

@@ -2,22 +2,14 @@
 //! pipes and events, time and sleep, memory, process information, and signals
 //! sent to itself. `None` means the number is not handled here.
 
-use std::ffi::{CStr, c_char};
+use std::ffi::c_char;
 
 use cs2metal_loader::SyscallFrame;
 
 use crate::fds;
+use crate::paths::Use;
+use crate::syscall::host_path;
 use crate::translate::{EFAULT, EINVAL, ENOMEM, dirfd, result};
-
-/// A guest path, or `None` for a null pointer.
-///
-/// # Safety
-///
-/// `p` must be null or point at a NUL-terminated string in guest memory.
-unsafe fn path<'a>(p: u64) -> Option<&'a CStr> {
-    // SAFETY: the caller's contract.
-    (p != 0).then(|| unsafe { CStr::from_ptr(p as *const c_char) })
-}
 
 fn write_fds(out: u64, fds: [libc::c_int; 2]) -> i64 {
     if out == 0 {
@@ -211,28 +203,29 @@ pub(crate) fn answer(f: &SyscallFrame) -> Option<i64> {
             62 => kill(a1),
             74 | 75 => result(i64::from(libc::fsync(fd))),
             77 => result(i64::from(libc::ftruncate(fd, a1 as libc::off_t))),
-            80 => match path(a0) {
-                Some(p) => result(i64::from(libc::chdir(p.as_ptr()))),
-                None => EFAULT,
+            80 => match host_path(a0, libc::AT_FDCWD, Use::Read) {
+                Ok(p) => result(i64::from(libc::chdir(p.as_ptr()))),
+                Err(e) => e,
             },
             81 => result(i64::from(libc::fchdir(fd))),
-            82 => match (path(a0), path(a1)) {
-                (Some(from), Some(to)) => {
-                    result(i64::from(libc::rename(from.as_ptr(), to.as_ptr())))
-                }
-                _ => EFAULT,
+            82 => match (
+                host_path(a0, libc::AT_FDCWD, Use::Modify),
+                host_path(a1, libc::AT_FDCWD, Use::Replace),
+            ) {
+                (Ok(from), Ok(to)) => result(i64::from(libc::rename(from.as_ptr(), to.as_ptr()))),
+                (Err(e), _) | (_, Err(e)) => e,
             },
-            83 => match path(a0) {
-                Some(p) => result(i64::from(libc::mkdir(p.as_ptr(), a1 as libc::mode_t))),
-                None => EFAULT,
+            83 => match host_path(a0, libc::AT_FDCWD, Use::Replace) {
+                Ok(p) => result(i64::from(libc::mkdir(p.as_ptr(), a1 as libc::mode_t))),
+                Err(e) => e,
             },
-            84 => match path(a0) {
-                Some(p) => result(i64::from(libc::rmdir(p.as_ptr()))),
-                None => EFAULT,
+            84 => match host_path(a0, libc::AT_FDCWD, Use::Remove) {
+                Ok(p) => result(i64::from(libc::rmdir(p.as_ptr()))),
+                Err(e) => e,
             },
-            87 => match path(a0) {
-                Some(p) => result(i64::from(libc::unlink(p.as_ptr()))),
-                None => EFAULT,
+            87 => match host_path(a0, libc::AT_FDCWD, Use::Remove) {
+                Ok(p) => result(i64::from(libc::unlink(p.as_ptr()))),
+                Err(e) => e,
             },
             95 => i64::from(libc::umask(a0 as libc::mode_t)),
             96 => result(i64::from(libc::gettimeofday(
@@ -258,9 +251,9 @@ pub(crate) fn answer(f: &SyscallFrame) -> Option<i64> {
             137 | 138 => {
                 let mut st: libc::statfs = std::mem::zeroed();
                 let status = if f.number == 137 {
-                    match path(a0) {
-                        Some(p) => libc::statfs(p.as_ptr(), &mut st),
-                        None => return Some(EFAULT),
+                    match host_path(a0, libc::AT_FDCWD, Use::Read) {
+                        Ok(p) => libc::statfs(p.as_ptr(), &mut st),
+                        Err(e) => return Some(e),
                     }
                 } else {
                     libc::fstatfs(fd, &mut st)
@@ -286,16 +279,16 @@ pub(crate) fn answer(f: &SyscallFrame) -> Option<i64> {
             217 => fds::getdents64(fd, a1, a2),
             230 => clock_nanosleep(a0, a1, a2),
             234 => kill(a2),
-            258 => match path(a1) {
-                Some(p) => result(i64::from(libc::mkdirat(
+            258 => match host_path(a1, dirfd(a0 as i64), Use::Replace) {
+                Ok(p) => result(i64::from(libc::mkdirat(
                     dirfd(a0 as i64),
                     p.as_ptr(),
                     a2 as libc::mode_t,
                 ))),
-                None => EFAULT,
+                Err(e) => e,
             },
-            263 => match path(a1) {
-                Some(p) => {
+            263 => match host_path(a1, dirfd(a0 as i64), Use::Remove) {
+                Ok(p) => {
                     let flags = if a2 & 0x200 != 0 {
                         libc::AT_REMOVEDIR
                     } else {
@@ -307,34 +300,37 @@ pub(crate) fn answer(f: &SyscallFrame) -> Option<i64> {
                         flags,
                     )))
                 }
-                None => EFAULT,
+                Err(e) => e,
             },
-            264 | 316 => match (path(a1), path(a3)) {
-                (Some(from), Some(to)) => result(i64::from(libc::renameat(
+            264 | 316 => match (
+                host_path(a1, dirfd(a0 as i64), Use::Modify),
+                host_path(a3, dirfd(a2 as i64), Use::Replace),
+            ) {
+                (Ok(from), Ok(to)) => result(i64::from(libc::renameat(
                     dirfd(a0 as i64),
                     from.as_ptr(),
                     dirfd(a2 as i64),
                     to.as_ptr(),
                 ))),
-                _ => EFAULT,
+                (Err(e), _) | (_, Err(e)) => e,
             },
-            267 => match path(a1) {
-                Some(p) => result(libc::readlinkat(
+            267 => match host_path(a1, dirfd(a0 as i64), Use::Read) {
+                Ok(p) => result(libc::readlinkat(
                     dirfd(a0 as i64),
                     p.as_ptr(),
                     a2 as *mut c_char,
                     a3 as usize,
                 ) as i64),
-                None => EFAULT,
+                Err(e) => e,
             },
-            269 => match path(a1) {
-                Some(p) => result(i64::from(libc::faccessat(
+            269 => match host_path(a1, dirfd(a0 as i64), Use::Read) {
+                Ok(p) => result(i64::from(libc::faccessat(
                     dirfd(a0 as i64),
                     p.as_ptr(),
                     a2 as libc::c_int,
                     0,
                 ))),
-                None => EFAULT,
+                Err(e) => e,
             },
             271 => {
                 // ppoll: a timespec timeout; the signal mask is not emulated.

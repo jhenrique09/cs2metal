@@ -13,6 +13,7 @@ mod epoll;
 mod fds;
 mod mmap;
 mod more;
+mod paths;
 mod syscall;
 mod threads;
 mod translate;
@@ -21,6 +22,8 @@ use std::convert::Infallible;
 use std::ffi::CString;
 use std::fmt;
 use std::path::{Path, PathBuf};
+
+pub use paths::Overlay;
 
 use cs2metal_loader::{FsRewrite, HostBlock, Image, attach, enter_process, set_syscall_handler};
 
@@ -37,6 +40,8 @@ pub struct Launch {
     pub args: Vec<String>,
     /// The guest's environment, `NAME=value`.
     pub env: Vec<String>,
+    /// Where the guest's writes into an installation go instead.
+    pub overlay: Option<Overlay>,
 }
 
 /// Why a program could not be started.
@@ -184,6 +189,9 @@ pub fn exec(launch: &Launch) -> Result<Infallible, Error> {
         attach(tp, &block);
     }
     syscall::BLOCK.with(|b| *b.borrow_mut() = Some(block));
+    if let Some(overlay) = &launch.overlay {
+        paths::set_overlay(overlay.clone());
+    }
     if let Ok(mut exe) = syscall::EXE.lock() {
         *exe = launch.program.to_string_lossy().into_owned();
     }

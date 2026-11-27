@@ -36,6 +36,22 @@ unsafe fn guest_str<'a>(p: u64) -> Option<&'a CStr> {
     (p != 0).then(|| unsafe { CStr::from_ptr(p as *const c_char) })
 }
 
+/// A guest path as the host should use it (through the installation overlay),
+/// or a Linux errno.
+///
+/// # Safety
+///
+/// `p` must be null or point at a NUL-terminated string in guest memory.
+pub(crate) unsafe fn host_path(
+    p: u64,
+    dirfd: libc::c_int,
+    how: crate::paths::Use,
+) -> Result<std::borrow::Cow<'static, CStr>, i64> {
+    // SAFETY: the caller's contract.
+    let path: &'static CStr = unsafe { guest_str(p) }.ok_or(EFAULT)?;
+    crate::paths::resolve(path, dirfd, how)
+}
+
 fn write_stat(out: u64, st: &libc::stat) -> i64 {
     if out == 0 {
         return EFAULT;
@@ -48,8 +64,9 @@ fn write_stat(out: u64, st: &libc::stat) -> i64 {
 
 fn stat_path(path: u64, out: u64, follow: bool) -> i64 {
     // SAFETY: the guest passes a path string.
-    let Some(path) = (unsafe { guest_str(path) }) else {
-        return EFAULT;
+    let path = match unsafe { host_path(path, libc::AT_FDCWD, crate::paths::Use::Read) } {
+        Ok(p) => p,
+        Err(e) => return e,
     };
     // SAFETY: stat writes into the zeroed struct.
     let mut st: libc::stat = unsafe { std::mem::zeroed() };
@@ -237,13 +254,13 @@ fn answer(f: &mut SyscallFrame) -> u64 {
         match f.number {
             0 => result(libc::read(fd, a1 as *mut _, a2 as usize) as i64),
             1 => result(libc::write(fd, a1 as *const _, a2 as usize) as i64),
-            2 => match guest_str(a0) {
-                Some(p) => result(i64::from(libc::open(
+            2 => match host_path(a0, libc::AT_FDCWD, crate::paths::open_use(a1)) {
+                Ok(p) => result(i64::from(libc::open(
                     p.as_ptr(),
                     open_flags(a1),
                     a2 as libc::c_uint,
                 ))),
-                None => EFAULT,
+                Err(e) => e,
             },
             3 => {
                 crate::fds::close(fd);
@@ -274,9 +291,9 @@ fn answer(f: &mut SyscallFrame) -> u64 {
             16 => ENOTTY, // ioctl: no terminal emulation yet
             17 => result(libc::pread(fd, a1 as *mut _, a2 as usize, a3 as libc::off_t) as i64),
             20 => result(libc::writev(fd, a1 as *const libc::iovec, a2 as libc::c_int) as i64),
-            21 => match guest_str(a0) {
-                Some(p) => result(i64::from(libc::access(p.as_ptr(), a1 as libc::c_int))),
-                None => EFAULT,
+            21 => match host_path(a0, libc::AT_FDCWD, crate::paths::Use::Read) {
+                Ok(p) => result(i64::from(libc::access(p.as_ptr(), a1 as libc::c_int))),
+                Err(e) => e,
             },
             28 => 0, // madvise: advice only
             39 => i64::from(libc::getpid()),
@@ -314,14 +331,14 @@ fn answer(f: &mut SyscallFrame) -> u64 {
             202 => crate::threads::futex(a0, a1, a2, a3, f.arg4, f.arg5),
             218 => crate::threads::set_tid_address(a0),
             228 => clock_gettime(a0, a1),
-            257 => match guest_str(a1) {
-                Some(p) => result(i64::from(libc::openat(
+            257 => match host_path(a1, dirfd(a0 as i64), crate::paths::open_use(a2)) {
+                Ok(p) => result(i64::from(libc::openat(
                     dirfd(a0 as i64),
                     p.as_ptr(),
                     open_flags(a2),
                     a3 as libc::c_uint,
                 ))),
-                None => EFAULT,
+                Err(e) => e,
             },
             262 => {
                 // newfstatat: AT_EMPTY_PATH is fstat; AT_SYMLINK_NOFOLLOW is lstat.
