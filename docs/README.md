@@ -26,6 +26,7 @@ as the code. It began as a separate repository and was merged, with its history,
 | [How the guest gets its C library](LIBC_ROUTE_DECISION.md) | Accepted, 27 November 2026: glibc 2.31 rebuilt with one system call slot, with its own ld.so (route C); the host is a Linux system call layer. |
 | [Linux fixtures are rebuilt, not tracked](FIXTURES_DECISION.md) | Proposed, 27 November 2026, in effect for C1: track sources, expected outputs, and checksums; build in the pinned SDK image. |
 | [Steam bridge design](STEAM_BRIDGE_DESIGN.md) | Accepted, 27 November 2026, after probes H-1 and H-2 passed: keep the game's own Linux `libsteam_api.so` and bridge it to the macOS client library, so only Valve's code handles identity and licences. |
+| [An opt-in online launch](ONLINE_LAUNCH_DECISION.md) | Accepted, 27 November 2026: `tools/launch.sh` accepts `-online`, which leaves `-insecure` out; offline stays the default, and automated boots never use it. |
 
 ## Research
 

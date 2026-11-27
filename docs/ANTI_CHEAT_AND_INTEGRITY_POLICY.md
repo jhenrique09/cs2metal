@@ -43,7 +43,10 @@ below still apply in full.
    reach the owner's own Steam client.
 6. **Offline by default.** Until the owner decides otherwise in a dated decision
    record, test launches use `-insecure` and local bot matches, which keeps them off
-   VAC-secured servers.
+   VAC-secured servers. On 27 November 2026 the owner decided that the launcher
+   accepts an opt-in `-online` option that leaves `-insecure` out
+   ([decision](ONLINE_LAUNCH_DECISION.md)). Without that option, and in every boot
+   by an automated contributor, `-insecure` stays.
 7. **A secondary account for anything online.** Never test online with an account
    whose loss would matter.
 
