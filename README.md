@@ -31,8 +31,7 @@ Vulkan-on-Metal driver. The game files are never modified on disk.
 You need an Apple silicon Mac and [rustup](https://rustup.rs).
 
 ```bash
-git config core.hooksPath .githooks   # every commit runs the full check suite
-tools/check.sh                        # format, lint, tests and repository guard
+tools/check.sh                        # format, lint, tests, guard and documentation checks
 cargo run -p cs2metal -- --help
 ```
 
@@ -55,7 +54,7 @@ to `reports/`, which is ignored: they are derived from game files and stay local
 | `crates/cs2metal-inventory` | Installation scan, import resolution, and host requirement report |
 | `apps/cs2metal` | Command-line front end |
 | `spikes/` | Small, self-contained platform probes and their reproduction scripts |
-| `tools/` | Repository guard and the check suite run by the pre-commit hook |
+| `tools/` | Repository guard and the check suite every commit must pass |
 | `docs/` | Architecture, decision records, implementation plan, research, and policies |
 
 ## Documentation

@@ -54,11 +54,11 @@ and paths stay in English too.
 ## Checks
 
 ```bash
-git config core.hooksPath .githooks
-python3 -m unittest discover -s tests -v
-python3 tools/check_docs.py
+tools/check.sh
 ```
 
-The pre-commit hook runs both. The checker rejects non-English prose, broken relative
+Run from the repository root, the check suite includes the documentation checker
+(`docs/tools/check_docs.py`) and its tests. The project uses no Git hooks, so run it
+before every commit. The checker rejects non-English prose, broken relative
 links, home paths, likely secrets, missing status sections, and invalid dates in file
 names.

@@ -12,8 +12,7 @@ first. Every milestone ends in a gate with evidence recorded here.
 
 ## Safety boundary
 
-Automated validation (`tools/check.sh` in the code repository, the hooks in both
-repositories) never launches the game, contacts Steam, downloads game files, or
+Automated validation (`tools/check.sh`) never launches the game, contacts Steam, downloads game files, or
 writes outside the repositories and the system temporary directory. Steps that need
 the game or a Steam sign-in are **owner actions**, marked as such below. The rules in
 the [policy](ANTI_CHEAT_AND_INTEGRITY_POLICY.md) apply to every milestone.
@@ -41,6 +40,11 @@ each created through the pre-commit hook. At `3ec42d4`: 11 repository guard test
 14 parser tests and 1 doctest (every truncation and single-byte corruption of a
 fixture fails without a panic), 10 inventory tests, and 3 command-line tests pass,
 and clippy reports no warnings. Documentation checker: 9 tests pass.
+
+Amended on 26 November 2026, by owner decision: the documentation repository was
+merged into `docs/` of the code repository with its history, and both pre-commit
+hooks were removed. `tools/check.sh` now covers code and documentation and is run
+explicitly before every commit.
 
 ### M1: the Linux build and its baseline inventory
 

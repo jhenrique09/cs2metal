@@ -1,5 +1,0 @@
-#!/usr/bin/env bash
-# Every commit must pass the full check suite. Enable with:
-#   git config core.hooksPath .githooks
-set -euo pipefail
-exec "$(git rev-parse --show-toplevel)/tools/check.sh" --staged

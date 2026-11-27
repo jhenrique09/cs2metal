@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Reject commits that carry secrets, game files, binaries, or non-English docs.
 
-The guard runs from the pre-commit hook (``--staged``) and from ``tools/check.sh``
-(``--all``). It reads file contents from the Git index in staged mode, so it checks
-exactly what would be committed.
+The guard runs from ``tools/check.sh``. In ``--staged`` mode it reads file contents
+from the Git index, so it checks exactly what would be committed; ``--all`` checks
+the working tree.
 """
 
 from __future__ import annotations

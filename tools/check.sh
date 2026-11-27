@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Runs every check a commit must pass. The pre-commit hook calls this with
-# --staged; run it without arguments to check the whole working tree.
+# Runs every check a commit must pass. There are no Git hooks: run this before
+# every commit. Without arguments it checks the whole working tree; --staged makes
+# the repository guard read the Git index instead.
 set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)"

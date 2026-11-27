@@ -3,16 +3,13 @@
 ## Setup
 
 ```bash
-git config core.hooksPath .githooks
 tools/check.sh
 ```
 
-The hook runs `tools/check.sh --staged` before every commit: the repository guard
-and its tests, `cargo fmt --check`, `cargo clippy -D warnings`, and the full test
-suite. A commit that fails any of them is not created. Do not use `--no-verify`.
-
-The hook checks the working tree for Rust and the Git index for the repository
-guard. Stage complete changes rather than partial hunks so both see the same code.
+The project uses no Git hooks. Run `tools/check.sh` yourself before every commit: the
+repository guard and its tests, the documentation checker and its tests,
+`cargo fmt --check`, `cargo clippy -D warnings`, and the full test suite. Do not
+commit while any of them fails.
 
 ## What a change needs
 

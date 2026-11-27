@@ -43,9 +43,9 @@ The documentation lives in `docs/`, in this repository. Read
 
 ## Validation
 
-Every commit must pass `tools/check.sh`. The pre-commit hook runs it in `--staged`
-mode once `git config core.hooksPath .githooks` is set. Never bypass the hook with
-`--no-verify`. A change in behavior comes with tests in the same commit.
+Every commit must pass `tools/check.sh`. The project uses no Git hooks, so run it
+yourself before each commit and do not commit while it fails. A change in behavior
+comes with tests in the same commit.
 
 Validation never launches the game, contacts Steam, or downloads game files. Steps
 that need the game are owner actions recorded in `docs/IMPLEMENTATION_PLAN.md`.
