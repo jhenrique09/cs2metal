@@ -327,6 +327,57 @@ extern "C" fn traced_wait_event_timeout(event: u64, timeout: i32) -> bool {
     got
 }
 
+/// Set by SIGTERM or SIGINT: the game is to be asked to quit.
+static QUIT_ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// The handler of SIGTERM and SIGINT. It may run on any thread, with GS at the
+/// guest's control block: it sets a flag and puts the default action back, so
+/// that a second signal ends a game that does not quit.
+extern "C" fn ask_to_quit(signal: libc::c_int) {
+    QUIT_ASKED.store(true, std::sync::atomic::Ordering::Relaxed);
+    // SAFETY: restores the default action of the signal being handled.
+    unsafe { libc::signal(signal, libc::SIG_DFL) };
+}
+
+/// Makes SIGTERM and SIGINT ask the game to quit, as closing its window would,
+/// instead of ending the process where it stands. A process ended in the middle
+/// of its work leaves what it was writing as it was: Metal's shader cache among
+/// it, which the next start then compiles again.
+fn quit_on_signals() {
+    for signal in [libc::SIGTERM, libc::SIGINT] {
+        // SAFETY: a zeroed sigaction with a handler of the plain form.
+        unsafe {
+            let mut action: libc::sigaction = std::mem::zeroed();
+            action.sa_sigaction = ask_to_quit as *const () as usize;
+            action.sa_flags = libc::SA_RESTART;
+            libc::sigemptyset(&mut action.sa_mask);
+            libc::sigaction(signal, &action, std::ptr::null_mut());
+        }
+    }
+}
+
+/// `SDL_EVENT_QUIT`.
+const EVENT_QUIT: u32 = 0x100;
+
+/// Pushes SDL's quit event if a signal asked for it, once per signal: on the
+/// thread that takes the game's events.
+fn quit_if_asked() {
+    if !QUIT_ASKED.swap(false, std::sync::atomic::Ordering::Relaxed) {
+        return;
+    }
+    let push = real("SDL_PushEvent");
+    if push == 0 {
+        return;
+    }
+    // An SDL_Event is 128 bytes and starts with its type; SDL stamps a zero time.
+    let mut event = [0u32; 32];
+    event[0] = EVENT_QUIT;
+    // SAFETY: the host library's SDL_PushEvent, which copies the event.
+    let push = unsafe { std::mem::transmute::<usize, extern "C" fn(*mut [u32; 32]) -> bool>(push) };
+    push(&mut event);
+    eprintln!("cs2metal: a signal asked the game to quit");
+}
+
 /// `SDL_PeepEvents(events, count, action, min, max)`: the game takes its
 /// events with it, on its main thread, several times a frame. That is where
 /// the window is looked at again for [`fit_screen`], a few times a second, so
@@ -346,6 +397,7 @@ extern "C" fn peep_events(events: u64, count: i32, action: u32, min: u32, max: u
     // SAFETY: the host library's SDL_PeepEvents.
     let f =
         unsafe { std::mem::transmute::<usize, extern "C" fn(u64, i32, u32, u32, u32) -> i32>(f) };
+    quit_if_asked();
     let got = f(events, count, action, min, max);
     fit_screen_in_time();
     if !tracing() {
@@ -1303,6 +1355,7 @@ pub(crate) fn bind(table: u64, names: u64, count: u64) -> i64 {
     prepare_vulkan_environment();
     keep_window_on_focus_loss();
     no_fullscreen_spaces();
+    quit_on_signals();
     let mut bridge = match Bridge::new() {
         Ok(b) => b,
         Err(_) => return crate::translate::ENOMEM,
@@ -1460,6 +1513,7 @@ mod tests {
                 "SDL_SetNumberProperty",
                 set_number_property as *const () as usize,
             ),
+            ("SDL_PushEvent", push_event as *const () as usize),
             ("SDL_GetAudioStreamDevice", device as *const () as usize),
             ("SDL_AudioDevicePaused", device_paused as *const () as usize),
             ("SDL_LockAudioStream", lock as *const () as usize),
@@ -1563,6 +1617,30 @@ mod tests {
         assert!(!covers_display(0x1000_0618, display, display));
         assert!(!covers_display(0x1000_0650, display, display));
         assert!(!covers_display(0x1000_0610, (0, 0), (0, 0)));
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    static PUSHED: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+
+    #[cfg(target_arch = "x86_64")]
+    extern "C" fn push_event(event: *mut [u32; 32]) -> bool {
+        // SAFETY: the bridge passes an event.
+        PUSHED.lock().expect("pushed").push(unsafe { (*event)[0] });
+        true
+    }
+
+    /// SIGTERM asks the game to quit with SDL's quit event, once, and puts the
+    /// default action back for a second signal.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn a_signal_asks_the_game_to_quit_once() {
+        install_fakes();
+        quit_if_asked();
+        assert!(PUSHED.lock().expect("pushed").is_empty());
+        ask_to_quit(libc::SIGUSR1);
+        quit_if_asked();
+        quit_if_asked();
+        assert_eq!(*PUSHED.lock().expect("pushed"), [EVENT_QUIT]);
     }
 
     #[test]

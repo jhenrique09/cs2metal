@@ -60,6 +60,17 @@ the guest's control block for the call, and back. Host code finds the thread's
 host block through a pthread TSD slot. A host thread that never ran guest code has
 no guest state, so the wrappers keep guest callbacks off such threads.
 
+### Quitting
+
+SIGTERM and SIGINT (Ctrl-C in the terminal that started the game) used to end the
+process where it stood. They now set a flag, and where the game next takes its
+events the bridge pushes SDL's quit event, the one closing the window sends, so the
+game shuts itself down. The default action is put back at the first signal, so a
+second one ends a game that does not quit. A process ended in the middle of its work
+leaves what it was writing as it was; after test boots ended that way, the next
+start spent two minutes compiling its Metal shaders again (INFERRED: the order of
+events fits, the cause is not isolated).
+
 ### The main thread
 
 macOS requires windows and events on the process's main thread. cs2metal starts
