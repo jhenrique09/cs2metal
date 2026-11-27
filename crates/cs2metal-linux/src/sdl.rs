@@ -378,6 +378,60 @@ fn quit_if_asked() {
     eprintln!("cs2metal: a signal asked the game to quit");
 }
 
+/// A part of the game's event processing that takes this long is named in the
+/// trace: a third of a frame at a hundred frames a second.
+const SLOW_EVENTS: std::time::Duration = std::time::Duration::from_millis(3);
+
+/// The trace's line for a call of `what` whose parts took these times, or
+/// `None` if together they stayed under [`SLOW_EVENTS`]. The game reports its
+/// own event processing as slow in its console log, with the time of day; the
+/// line carries the Unix time `at` to set beside it.
+fn slow_events_line(
+    what: &str,
+    parts: &[(&str, std::time::Duration)],
+    at: std::time::Duration,
+) -> Option<String> {
+    let total: std::time::Duration = parts.iter().map(|(_, took)| *took).sum();
+    if total < SLOW_EVENTS {
+        return None;
+    }
+    let ms = |took: std::time::Duration| took.as_secs_f64() * 1000.0;
+    let detail = parts
+        .iter()
+        .map(|(part, took)| format!("{part} {:.1} ms", ms(*took)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!(
+        "cs2metal: {what} took {:.1} ms ({detail}), at {}.{:03} (Unix time)",
+        ms(total),
+        at.as_secs(),
+        at.subsec_millis()
+    ))
+}
+
+fn note_slow_events(what: &str, parts: &[(&str, std::time::Duration)]) {
+    let at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    if let Some(line) = slow_events_line(what, parts, at) {
+        eprintln!("{line}");
+    }
+}
+
+/// `SDL_PumpEvents()`, timed for the trace: this is where host SDL takes the
+/// application's events from AppKit, on the game's main thread, once a frame.
+extern "C" fn timed_pump_events() {
+    let f = real("SDL_PumpEvents");
+    if f == 0 {
+        return;
+    }
+    // SAFETY: the host library's SDL_PumpEvents.
+    let f = unsafe { std::mem::transmute::<usize, extern "C" fn()>(f) };
+    let start = std::time::Instant::now();
+    f();
+    note_slow_events("SDL_PumpEvents", &[("host SDL", start.elapsed())]);
+}
+
 /// `SDL_PeepEvents(events, count, action, min, max)`: the game takes its
 /// events with it, on its main thread, several times a frame. That is where
 /// the window is looked at again for [`fit_screen`], a few times a second, so
@@ -398,11 +452,22 @@ extern "C" fn peep_events(events: u64, count: i32, action: u32, min: u32, max: u
     let f =
         unsafe { std::mem::transmute::<usize, extern "C" fn(u64, i32, u32, u32, u32) -> i32>(f) };
     quit_if_asked();
-    let got = f(events, count, action, min, max);
-    fit_screen_in_time();
     if !tracing() {
+        let got = f(events, count, action, min, max);
+        fit_screen_in_time();
         return got;
     }
+    let start = std::time::Instant::now();
+    let got = f(events, count, action, min, max);
+    let taken = start.elapsed();
+    fit_screen_in_time();
+    note_slow_events(
+        "SDL_PeepEvents",
+        &[
+            ("host SDL", taken),
+            ("the window check", start.elapsed().saturating_sub(taken)),
+        ],
+    );
     note_focus_state();
     // SDL_ADDEVENT is 0; the other actions hand events out.
     if action != 0 && events != 0 {
@@ -1577,6 +1642,7 @@ fn wrapper(name: &[u8]) -> Option<u64> {
         b"SDL_OpenAudioDeviceStream" => open_audio_device_stream as *const (),
         b"SDL_DestroyAudioStream" => destroy_audio_stream as *const (),
         b"SDL_PollEvent" if tracing() => traced_poll_event as *const (),
+        b"SDL_PumpEvents" if tracing() => timed_pump_events as *const (),
         b"SDL_WaitEventTimeout" if tracing() => traced_wait_event_timeout as *const (),
         b"SDL_GetWindowFromID" if tracing() => changed_window_from_id as *const (),
         b"SDL_GetWindowID" if tracing() => changed_window_id as *const (),
@@ -1774,6 +1840,26 @@ mod tests {
         let shown = read(&data);
         assert_eq!((shown.title.as_str(), shown.answer(0)), ("", None));
         assert!(shown.offered().is_empty());
+    }
+
+    #[test]
+    fn slow_event_processing_is_named_with_its_parts() {
+        let ms = std::time::Duration::from_millis;
+        let at = std::time::Duration::from_millis(1_795_000_000_042);
+        assert_eq!(
+            slow_events_line("SDL_PumpEvents", &[("host SDL", ms(2))], at),
+            None
+        );
+        assert_eq!(
+            slow_events_line(
+                "SDL_PeepEvents",
+                &[("host SDL", ms(1)), ("the window check", ms(11))],
+                at
+            )
+            .expect("line"),
+            "cs2metal: SDL_PeepEvents took 12.0 ms (host SDL 1.0 ms, the window check 11.0 ms), \
+             at 1795000000.042 (Unix time)"
+        );
     }
 
     #[test]
