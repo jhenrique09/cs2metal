@@ -34,6 +34,9 @@ if [[ -f Cargo.toml ]]; then
     echo "==> cargo clippy and test, x86_64-apple-darwin (Rosetta 2)"
     cargo clippy -p cs2metal-loader --target x86_64-apple-darwin --all-targets --locked -- -D warnings
     cargo test -p cs2metal-loader --target x86_64-apple-darwin --locked
+    cargo clippy -p cs2metal-linux -p cs2metal --target x86_64-apple-darwin --all-targets --locked -- -D warnings
+    cargo test -p cs2metal-linux --target x86_64-apple-darwin --locked
+    cargo test -p cs2metal --target x86_64-apple-darwin --locked --test exec
 fi
 
 echo "==> all checks passed"

@@ -13,6 +13,7 @@ cs2metal-codescan.workspace = true
 cs2metal-elf.workspace = true
 cs2metal-integrity.workspace = true
 cs2metal-inventory.workspace = true
+cs2metal-linux.workspace = true
 cs2metal-vulkan.workspace = true
 serde_json.workspace = true
 

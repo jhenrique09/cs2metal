@@ -427,7 +427,20 @@ State: the bake-off ran on 27 November 2026 ([results](LIBC_BAKEOFF_2026-11-27.m
 Route B is ruled out: a trapped system call costs about 34 µs under Rosetta 2.
 Route C sends 970 of glibc's 975 system call sites through one slot with 20 changed
 source lines and a two-minute build. The owner chose route C with glibc's own ld.so
-the same day ([decision](LIBC_ROUTE_DECISION.md)). The first slice follows.
+the same day ([decision](LIBC_ROUTE_DECISION.md)).
+
+First slice, done on 27 November 2026: `tools/guest-glibc.sh` builds Debian's glibc
+2.31 with the slot, and `cs2metal exec` starts its ld.so as a kernel would and
+answers its system calls. Six of the eight fixtures, the C++ one included, print
+their Linux output under Rosetta 2. The two that use threads wait for `clone` and
+`futex`, which close Gate 1 with them.
+
+```bash
+CS2METAL_BUILD_HOST=<ssh destination> tools/guest-glibc.sh
+target/x86_64-apple-darwin/debug/cs2metal exec --glibc target/guest-glibc \
+  --library-path ~/cs2metal-kit/sniper/files/lib/x86_64-linux-gnu \
+  target/fixtures/cxx
+```
 
 ### C4. `cs2metal run` and the first engine boot (to build, M, then iterative)
 

@@ -147,10 +147,13 @@ the T-001 counters match an independent count of `fs` prefixes in their code.
   27 November 2026: `guest/glibc` and `tools/guest-glibc.sh`; 974 of 977 system
   call sites through the slot, only the signal-return trampolines left, and a
   rebuild byte-identical to the tracked checksums.
-- [ ] `cs2metal-linux`: the host starts the rebuilt ld.so as a kernel would (stack,
+- [x] `cs2metal-linux`: the host starts the rebuilt ld.so as a kernel would (stack,
   auxiliary vector, control block) and answers its system calls through the slot.
-- [ ] The system calls the fixtures use, with T-001 at executable `mmap`, until
-  `hello` prints its expected output.
+- [x] The system calls the fixtures use, with T-001 at executable `mmap`, until
+  `hello` prints its expected output. Done on 27 November 2026: `cs2metal exec`
+  runs `hello`, `stack_guard`, `ifunc`, `scope`, `dlopen`, and `cxx` (C++
+  exceptions across modules on the runtime's libstdc++) with their Linux output,
+  under Rosetta 2, tested by `tools/check.sh`.
 - [ ] Threads (`clone`, `futex` on `__ulock_wait` and `__ulock_wake`), signals, and
   synthesized `/proc`, for the `tls`, `stack_guard`, `cxx`, `dlopen`, and `ifunc`
   fixtures.

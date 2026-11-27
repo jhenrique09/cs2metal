@@ -1,0 +1,27 @@
+[package]
+name = "cs2metal-linux"
+description = "Starts a Linux guest under its own glibc and answers its system calls on macOS"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+cs2metal-codescan.workspace = true
+cs2metal-elf.workspace = true
+cs2metal-loader.workspace = true
+libc.workspace = true
+
+# Answering system calls means reading and writing guest memory through raw
+# pointers, which needs `unsafe`. Like the loader, this crate opts out of the
+# workspace's `forbid(unsafe_code)` and requires a SAFETY comment on every block.
+[lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+missing_debug_implementations = "warn"
+
+[lints.clippy]
+undocumented_unsafe_blocks = "deny"
+dbg_macro = "warn"
+todo = "warn"
+unwrap_used = "warn"

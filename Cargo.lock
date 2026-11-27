@@ -152,6 +152,7 @@ dependencies = [
  "cs2metal-elf",
  "cs2metal-integrity",
  "cs2metal-inventory",
+ "cs2metal-linux",
  "cs2metal-vulkan",
  "serde_json",
  "tempfile",
@@ -191,6 +192,16 @@ dependencies = [
  "cs2metal-elf",
  "serde",
  "tempfile",
+]
+
+[[package]]
+name = "cs2metal-linux"
+version = "0.1.0"
+dependencies = [
+ "cs2metal-codescan",
+ "cs2metal-elf",
+ "cs2metal-loader",
+ "libc",
 ]
 
 [[package]]

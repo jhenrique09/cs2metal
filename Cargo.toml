@@ -14,6 +14,8 @@ cs2metal-codescan = { path = "crates/cs2metal-codescan" }
 cs2metal-elf = { path = "crates/cs2metal-elf" }
 cs2metal-integrity = { path = "crates/cs2metal-integrity" }
 cs2metal-inventory = { path = "crates/cs2metal-inventory" }
+cs2metal-linux = { path = "crates/cs2metal-linux" }
+cs2metal-loader = { path = "crates/cs2metal-loader" }
 cs2metal-vulkan = { path = "crates/cs2metal-vulkan" }
 clap = { version = "4", features = ["derive"] }
 libc = "0.2"

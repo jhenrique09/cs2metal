@@ -1,0 +1,338 @@
+//! Linux system calls, answered with macOS services in the host domain.
+//!
+//! The handler runs on the guest thread's own stack, after the system call entry
+//! has switched GS to the host. Guest pointers are used as the kernel would use
+//! them, in the guest's own address space, which is this process.
+
+use std::cell::RefCell;
+use std::collections::BTreeSet;
+use std::ffi::{CStr, c_char};
+use std::sync::Mutex;
+
+use cs2metal_loader::{HostBlock, SyscallFrame, attach};
+
+use crate::mmap;
+use crate::translate::{
+    self, EBADF, EFAULT, EINVAL, ENOSYS, ENOTTY, ERANGE, LinuxStat, dirfd, open_flags, result,
+};
+
+thread_local! {
+    /// The host block of the guest thread running on this host thread.
+    pub(crate) static BLOCK: RefCell<Option<HostBlock>> = const { RefCell::new(None) };
+}
+
+/// The program `/proc/self/exe` names.
+pub(crate) static EXE: Mutex<String> = Mutex::new(String::new());
+
+static UNSUPPORTED: Mutex<BTreeSet<u64>> = Mutex::new(BTreeSet::new());
+
+/// A guest C string. A null pointer reads as empty.
+///
+/// # Safety
+///
+/// `p` must be null or point at a NUL-terminated string in guest memory.
+unsafe fn guest_str<'a>(p: u64) -> Option<&'a CStr> {
+    // SAFETY: the caller's contract.
+    (p != 0).then(|| unsafe { CStr::from_ptr(p as *const c_char) })
+}
+
+fn write_stat(out: u64, st: &libc::stat) -> i64 {
+    if out == 0 {
+        return EFAULT;
+    }
+    let linux = LinuxStat::from(st);
+    // SAFETY: the guest passed a buffer for a Linux struct stat.
+    unsafe { std::ptr::write_unaligned(out as *mut LinuxStat, linux) };
+    0
+}
+
+fn stat_path(path: u64, out: u64, follow: bool) -> i64 {
+    // SAFETY: the guest passes a path string.
+    let Some(path) = (unsafe { guest_str(path) }) else {
+        return EFAULT;
+    };
+    // SAFETY: stat writes into the zeroed struct.
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: path is NUL-terminated; st is a valid out pointer.
+    let status = unsafe {
+        if follow {
+            libc::stat(path.as_ptr(), &mut st)
+        } else {
+            libc::lstat(path.as_ptr(), &mut st)
+        }
+    };
+    if status != 0 {
+        return result(-1);
+    }
+    write_stat(out, &st)
+}
+
+fn fstat(fd: i64, out: u64) -> i64 {
+    // SAFETY: fstat writes into the zeroed struct.
+    let mut st: libc::stat = unsafe { std::mem::zeroed() };
+    // SAFETY: as above.
+    if unsafe { libc::fstat(fd as libc::c_int, &mut st) } != 0 {
+        return result(-1);
+    }
+    write_stat(out, &st)
+}
+
+/// `arch_prctl(ARCH_SET_FS)` and `ARCH_GET_FS`: the guest's thread pointer, which
+/// under T-001 is the GS base the bridge returns to.
+fn arch_prctl(code: u64, addr: u64) -> i64 {
+    const ARCH_SET_FS: u64 = 0x1002;
+    const ARCH_GET_FS: u64 = 0x1003;
+    BLOCK.with(|b| {
+        let block = b.borrow();
+        let Some(block) = block.as_ref() else {
+            return EINVAL;
+        };
+        match code {
+            ARCH_SET_FS => {
+                // SAFETY: glibc passes its new thread control block, at least a
+                // tcbhead_t long; the slot and the host block pointer go inside it.
+                unsafe { attach(addr, block) };
+                match block.set_guest_tp(addr) {
+                    Ok(()) => 0,
+                    Err(_) => EINVAL,
+                }
+            }
+            ARCH_GET_FS if addr != 0 => {
+                // SAFETY: the guest passes a pointer to an unsigned long.
+                unsafe { std::ptr::write_unaligned(addr as *mut u64, block.guest_tp()) };
+                0
+            }
+            _ => EINVAL,
+        }
+    })
+}
+
+/// `struct utsname` with Linux's field size of 65 bytes.
+fn uname(out: u64) -> i64 {
+    if out == 0 {
+        return EFAULT;
+    }
+    let mut host = [0u8; 256];
+    // SAFETY: gethostname writes at most the buffer's length.
+    unsafe { libc::gethostname(host.as_mut_ptr().cast(), host.len()) };
+    let host_len = host.iter().position(|&b| b == 0).unwrap_or(0).min(64);
+    let fields: [&[u8]; 6] = [
+        b"Linux",
+        &host[..host_len],
+        b"5.15.0-cs2metal",
+        b"#1 SMP",
+        b"x86_64",
+        b"(none)",
+    ];
+    for (i, f) in fields.iter().enumerate() {
+        let at = out + 65 * i as u64;
+        // SAFETY: the guest passed a 390-byte struct utsname; each field is 65
+        // bytes and gets at most 64 plus a NUL.
+        unsafe {
+            std::ptr::write_bytes(at as *mut u8, 0, 65);
+            std::ptr::copy_nonoverlapping(f.as_ptr(), at as *mut u8, f.len().min(64));
+        }
+    }
+    0
+}
+
+fn readlink(path: u64, buf: u64, size: u64) -> i64 {
+    // SAFETY: the guest passes a path string.
+    let Some(path) = (unsafe { guest_str(path) }) else {
+        return EFAULT;
+    };
+    if path.to_bytes() == b"/proc/self/exe" {
+        let exe = EXE.lock().map(|e| e.clone()).unwrap_or_default();
+        let n = exe.len().min(size as usize);
+        // SAFETY: the guest passed a buffer of `size` bytes.
+        unsafe { std::ptr::copy_nonoverlapping(exe.as_ptr(), buf as *mut u8, n) };
+        return n as i64;
+    }
+    // SAFETY: path is NUL-terminated; buf has size bytes.
+    result(unsafe { libc::readlink(path.as_ptr(), buf as *mut c_char, size as usize) } as i64)
+}
+
+fn prlimit64(resource: u64, new: u64, old: u64) -> i64 {
+    const RLIMIT_STACK: u64 = 3;
+    const RLIMIT_NOFILE: u64 = 7;
+    let _ = new; // limits are not changed
+    if old != 0 {
+        let (cur, max) = match resource {
+            RLIMIT_STACK => (8 << 20, u64::MAX),
+            RLIMIT_NOFILE => (10240, 10240),
+            _ => (u64::MAX, u64::MAX),
+        };
+        // SAFETY: the guest passes a struct rlimit64 of two u64 words.
+        unsafe {
+            std::ptr::write_unaligned(old as *mut [u64; 2], [cur, max]);
+        }
+    }
+    0
+}
+
+fn clock_gettime(id: u64, out: u64) -> i64 {
+    let Some(clock) = translate::clock(id) else {
+        return EINVAL;
+    };
+    // SAFETY: struct timespec has the same layout on both systems on x86-64.
+    result(i64::from(unsafe {
+        libc::clock_gettime(clock, out as *mut libc::timespec)
+    }))
+}
+
+fn getcwd(buf: u64, size: u64) -> i64 {
+    // SAFETY: the guest passed a buffer of `size` bytes.
+    let p = unsafe { libc::getcwd(buf as *mut c_char, size as usize) };
+    if p.is_null() {
+        return result(-1);
+    }
+    // SAFETY: getcwd wrote a NUL-terminated string there.
+    let len = unsafe { CStr::from_ptr(p) }.to_bytes().len();
+    if len + 1 > size as usize {
+        return ERANGE;
+    }
+    len as i64 + 1
+}
+
+fn unsupported(number: u64) -> i64 {
+    if let Ok(mut seen) = UNSUPPORTED.lock() {
+        if seen.insert(number) {
+            eprintln!("cs2metal: unsupported Linux system call {number}");
+        }
+    }
+    ENOSYS
+}
+
+/// Whether `CS2METAL_TRACE` asks for a line per system call on standard error.
+fn tracing() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var_os("CS2METAL_TRACE").is_some())
+}
+
+/// The system call handler the bridge runs.
+pub(crate) extern "C" fn handle(f: &mut SyscallFrame) -> u64 {
+    let traced = tracing().then_some((f.number, [f.arg0, f.arg1, f.arg2, f.arg3, f.arg4, f.arg5]));
+    if let Some((n, a)) = traced {
+        eprintln!(
+            "cs2metal: syscall {n}({:#x}, {:#x}, {:#x}, {:#x}, {:#x}, {:#x})",
+            a[0], a[1], a[2], a[3], a[4], a[5]
+        );
+    }
+    let value = answer(f);
+    if traced.is_some() {
+        eprintln!("cs2metal:   = {value:#x}");
+    }
+    value
+}
+
+fn answer(f: &mut SyscallFrame) -> u64 {
+    let (a0, a1, a2, a3) = (f.arg0, f.arg1, f.arg2, f.arg3);
+    let fd = a0 as libc::c_int;
+    // SAFETY: every call below passes the guest's own arguments to libSystem, as
+    // the Linux kernel would use them, in the guest's address space.
+    let value: i64 = unsafe {
+        match f.number {
+            0 => result(libc::read(fd, a1 as *mut _, a2 as usize) as i64),
+            1 => result(libc::write(fd, a1 as *const _, a2 as usize) as i64),
+            2 => match guest_str(a0) {
+                Some(p) => result(i64::from(libc::open(
+                    p.as_ptr(),
+                    open_flags(a1),
+                    a2 as libc::c_uint,
+                ))),
+                None => EFAULT,
+            },
+            3 => result(i64::from(libc::close(fd))),
+            4 => stat_path(a0, a1, true),
+            5 => fstat(a0 as i64, a1),
+            6 => stat_path(a0, a1, false),
+            8 => result(libc::lseek(fd, a1 as libc::off_t, a2 as libc::c_int)),
+            9 => mmap::mmap(a0, a1, a2, a3, f.arg4 as i64, f.arg5),
+            10 => result(i64::from(libc::mprotect(
+                a0 as *mut _,
+                a1 as usize,
+                (a2 & 7) as libc::c_int,
+            ))),
+            11 => result(i64::from(libc::munmap(a0 as *mut _, a1 as usize))),
+            // brk: report no growth, so glibc's malloc uses mmap instead.
+            12 => 0,
+            13 | 14 => {
+                // rt_sigaction, rt_sigprocmask: recorded as done; signals come
+                // with their own slice.
+                if a2 != 0 {
+                    std::ptr::write_bytes(a2 as *mut u8, 0, a3.min(128) as usize);
+                }
+                0
+            }
+            16 => ENOTTY, // ioctl: no terminal emulation yet
+            17 => result(libc::pread(fd, a1 as *mut _, a2 as usize, a3 as libc::off_t) as i64),
+            20 => result(libc::writev(fd, a1 as *const libc::iovec, a2 as libc::c_int) as i64),
+            21 => match guest_str(a0) {
+                Some(p) => result(i64::from(libc::access(p.as_ptr(), a1 as libc::c_int))),
+                None => EFAULT,
+            },
+            28 => 0, // madvise: advice only
+            39 => i64::from(libc::getpid()),
+            60 | 231 => {
+                // exit, exit_group: one guest thread for now, so both end the process.
+                let _ = std::io::Write::flush(&mut std::io::stdout());
+                std::process::exit(a0 as i32)
+            }
+            63 => uname(a0),
+            72 => match a1 {
+                1 | 2 => result(i64::from(libc::fcntl(
+                    fd,
+                    a1 as libc::c_int,
+                    a2 as libc::c_int,
+                ))),
+                3 => {
+                    let flags = libc::fcntl(fd, libc::F_GETFL);
+                    if flags < 0 {
+                        result(-1)
+                    } else {
+                        translate::linux_open_flags(flags) as i64
+                    }
+                }
+                _ => EINVAL,
+            },
+            79 => getcwd(a0, a1),
+            89 => readlink(a0, a1, a2),
+            102 | 107 => i64::from(libc::getuid()),
+            104 | 108 => i64::from(libc::getgid()),
+            158 => arch_prctl(a0, a1),
+            186 | 218 => i64::from(libc::getpid()), // gettid, set_tid_address: one thread
+            202 => 0,                               // futex: one thread, nothing to wait for
+            228 => clock_gettime(a0, a1),
+            257 => match guest_str(a1) {
+                Some(p) => result(i64::from(libc::openat(
+                    dirfd(a0 as i64),
+                    p.as_ptr(),
+                    open_flags(a2),
+                    a3 as libc::c_uint,
+                ))),
+                None => EFAULT,
+            },
+            262 => {
+                // newfstatat: AT_EMPTY_PATH is fstat; AT_SYMLINK_NOFOLLOW is lstat.
+                const AT_SYMLINK_NOFOLLOW: u64 = 0x100;
+                const AT_EMPTY_PATH: u64 = 0x1000;
+                let empty = guest_str(a1).is_none_or(|p| p.to_bytes().is_empty());
+                if a3 & AT_EMPTY_PATH != 0 && empty {
+                    fstat(a0 as i64, a2)
+                } else if a0 as i32 == -100 {
+                    stat_path(a1, a2, a3 & AT_SYMLINK_NOFOLLOW == 0)
+                } else {
+                    EBADF
+                }
+            }
+            273 => 0, // set_robust_list: one thread
+            302 => prlimit64(a1, a2, a3),
+            318 => {
+                libc::arc4random_buf(a0 as *mut _, a1 as usize);
+                a1 as i64
+            }
+            number => unsupported(number),
+        }
+    };
+    value as u64
+}

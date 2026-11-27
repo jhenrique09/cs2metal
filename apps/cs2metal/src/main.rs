@@ -60,6 +60,23 @@ enum Command {
         #[command(subcommand)]
         action: TlsAction,
     },
+    /// Run a Linux program under the rebuilt glibc of tools/guest-glibc.sh, with its
+    /// system calls answered by the host. Only in an x86-64 build of cs2metal.
+    Exec {
+        /// The directory of the rebuilt glibc (target/guest-glibc).
+        #[arg(long)]
+        glibc: PathBuf,
+        /// More directories for ld.so to search, after the glibc's and before the
+        /// program's own.
+        #[arg(long)]
+        library_path: Vec<PathBuf>,
+        /// The guest's environment, NAME=value; nothing is inherited.
+        #[arg(long = "env")]
+        env: Vec<String>,
+        program: PathBuf,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
     /// The Vulkan names the renderer module carries, and what each driver offers.
     Vulkan {
         #[command(subcommand)]
@@ -238,6 +255,36 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         }
         Command::Baseline { action } => baseline(action),
         Command::Vulkan { action } => vulkan(action),
+        Command::Exec {
+            glibc,
+            library_path,
+            env,
+            program,
+            args,
+        } => {
+            let absolute =
+                |p: &Path| std::path::absolute(p).map_err(|e| format!("{}: {e}", p.display()));
+            let glibc = absolute(&glibc)?;
+            let program = absolute(&program)?;
+            let mut dirs = vec![glibc.clone()];
+            for d in &library_path {
+                dirs.push(absolute(d)?);
+            }
+            if let Some(parent) = program.parent() {
+                dirs.push(parent.to_owned());
+            }
+            let launch = cs2metal_linux::Launch {
+                ld_so: glibc.join("ld-linux-x86-64.so.2"),
+                library_path: dirs,
+                program,
+                args,
+                env,
+            };
+            match cs2metal_linux::exec(&launch) {
+                Ok(never) => match never {},
+                Err(e) => Err(e.to_string()),
+            }
+        }
         Command::Tls {
             action:
                 TlsAction::Scan {
