@@ -1,0 +1,95 @@
+name: Bug report
+description: Something does not work as the documentation says it should.
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for taking the time to report this. A report with a log and the exact steps is the one that gets fixed.
+
+        **Before you paste a log:** session logs can contain your Steam account name, your Steam ID, and paths with your user name. Replace them with `<account>`, `<steamid>`, and `~`.
+
+        Is it a security problem? Do not open an issue: use [a private report](https://github.com/jhenrique09/cs2metal/security/advisories/new) instead.
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before you report
+      options:
+        - label: I searched the existing issues, open and closed, and this is not one of them.
+          required: true
+        - label: I am on the latest `main`, rebuilt with `./build.sh`.
+          required: true
+        - label: I read [Getting started](https://github.com/jhenrique09/cs2metal/blob/main/docs/GETTING_STARTED.md), including "If something goes wrong".
+          required: true
+        - label: The log below contains no account name, Steam ID, or other personal data.
+          required: true
+
+  - type: dropdown
+    id: mode
+    attributes:
+      label: How the game was started
+      options:
+        - Offline (run.sh -offline, run-offline.sh)
+        - Online (run.sh)
+        - The application shortcut
+        - cs2metal run, by hand
+    validations:
+      required: true
+
+  - type: input
+    id: mac
+    attributes:
+      label: Mac
+      description: Model and chip, from About This Mac.
+      placeholder: MacBook Pro 16-inch 2021, Apple M1 Max, 32 GB
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "27.2.1"
+    validations:
+      required: true
+
+  - type: input
+    id: commit
+    attributes:
+      label: cs2metal commit
+      description: The output of `git rev-parse --short HEAD` in your checkout.
+      placeholder: 88d94ee
+    validations:
+      required: true
+
+  - type: input
+    id: build
+    attributes:
+      label: Game build
+      description: "The output of: grep buildid ~/cs2-metal/data/cs2-linux/steamapps/appmanifest_730.acf"
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+      placeholder: |
+        1. Started the game with run.sh -offline
+        2. Opened a practice match on de_dust2
+        3. The window turned black after about 30 seconds
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Session log
+      description: The session's log from `~/cs2-metal/logs/`. Attach the file if it is long.
+      render: text
+
+  - type: textarea
+    id: more
+    attributes:
+      label: Anything else
+      description: Screenshots, whether it happened before, what you already tried.

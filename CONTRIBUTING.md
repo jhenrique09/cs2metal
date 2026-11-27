@@ -54,6 +54,26 @@ fails.
 The repository guard (`tools/repo_guard.py`) rejects the first three mechanically,
 and `.gitignore` keeps the usual locations out of `git status`.
 
+## Pull requests
+
+1. For anything larger than a small fix, open an issue or a discussion first, so
+   that the approach is agreed on before the work.
+2. Fork the repository and work on a branch named for the change.
+3. Run `tools/check.sh` before each commit. The same suite runs on every pull
+   request, on an Apple silicon Mac, and must pass before a merge.
+4. Open the pull request and fill in its template. Every pull request is reviewed
+   by the maintainer; `main` takes no direct pushes from contributors and no force
+   pushes.
+5. Answer the review with new commits; resolve every conversation. Pull requests
+   are merged by rebase, which keeps each commit, or squashed when they hold one
+   change.
+
+Good places to begin are the issues labelled
+[good first issue](https://github.com/jhenrique09/cs2metal/labels/good%20first%20issue)
+and [help wanted](https://github.com/jhenrique09/cs2metal/labels/help%20wanted).
+Taking part means following the [code of conduct](CODE_OF_CONDUCT.md). Report a
+security problem privately, as [SECURITY.md](SECURITY.md) says, never in an issue.
+
 ## Commits
 
 Every change gets its own commit: each feature, fix, refactor, or documentation

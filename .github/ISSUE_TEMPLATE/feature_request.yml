@@ -1,0 +1,36 @@
+name: Feature request
+description: Something the host could do that it does not do yet.
+labels: [enhancement, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Ideas for later milestones are collected in [docs/FUTURE_WORK.md](https://github.com/jhenrique09/cs2metal/blob/main/docs/FUTURE_WORK.md). Check it first: yours may be there, with what it would take.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you want to do and cannot.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you propose
+      description: How it could work. Pointers to the code or the documentation help.
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives
+      description: Other ways to get there that you considered.
+
+  - type: checkboxes
+    id: policy
+    attributes:
+      label: Policy
+      options:
+        - label: This does not study, disable, intercept, or work around Valve Anti-Cheat, change gameplay, or give anyone an advantage ([policy](https://github.com/jhenrique09/cs2metal/blob/main/docs/ANTI_CHEAT_AND_INTEGRITY_POLICY.md)).
+          required: true

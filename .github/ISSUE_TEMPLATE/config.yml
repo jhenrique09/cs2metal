@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/jhenrique09/cs2metal/security/advisories/new
+    about: Report it privately. Please do not open a public issue.
+  - name: Questions and help
+    url: https://github.com/jhenrique09/cs2metal/discussions/categories/q-a
+    about: Installing, playing, or building, when you are not sure it is a bug.
+  - name: Valve Anti-Cheat, bans, and accounts
+    url: https://github.com/jhenrique09/cs2metal/blob/main/docs/ANTI_CHEAT_AND_INTEGRITY_POLICY.md
+    about: The project does not study anti-cheat and cannot help with bans. Read the policy for the risk.

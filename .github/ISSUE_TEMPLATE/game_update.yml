@@ -1,0 +1,47 @@
+name: A game update broke it
+description: It worked, then Valve shipped an update, and now it does not.
+labels: [game-update, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Game updates are the most common reason the host stops working. Please check the open issues labelled [game-update](https://github.com/jhenrique09/cs2metal/labels/game-update) first: someone may already have reported this one.
+
+        Remove your account name, Steam ID, and user name from the log before you paste it.
+
+  - type: input
+    id: when
+    attributes:
+      label: When the update came
+      placeholder: 2026-12-03
+    validations:
+      required: true
+
+  - type: input
+    id: build
+    attributes:
+      label: Game build now
+      description: "The output of: grep buildid ~/cs2-metal/data/cs2-linux/steamapps/appmanifest_730.acf"
+
+  - type: input
+    id: commit
+    attributes:
+      label: cs2metal commit
+      description: The output of `git rev-parse --short HEAD`, rebuilt with `./build.sh`.
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What changed
+      description: Where it stops now. Does it start offline, with `run.sh -offline`?
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Session log
+      description: The session's log from `~/cs2-metal/logs/`. Attach the file if it is long.
+      render: text

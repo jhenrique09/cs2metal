@@ -1,0 +1,53 @@
+name: Performance
+description: Low frame rate, long stutters, or a slow start, measured.
+labels: [performance, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Two things are known and expected: the very first start stays black for a few minutes while Metal compiles the game's shaders, and each new kind of scene stutters the first time it is drawn. Please report what goes beyond that.
+
+  - type: input
+    id: mac
+    attributes:
+      label: Mac
+      placeholder: MacBook Air 13-inch 2024, Apple M3, 16 GB
+    validations:
+      required: true
+
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+    validations:
+      required: true
+
+  - type: input
+    id: commit
+    attributes:
+      label: cs2metal commit
+    validations:
+      required: true
+
+  - type: input
+    id: settings
+    attributes:
+      label: Resolution and video preset
+      placeholder: 2560 by 1440, low preset
+    validations:
+      required: true
+
+  - type: textarea
+    id: numbers
+    attributes:
+      label: What you measured
+      description: Frames per second where, with `cl_showfps 1` or `fps_max 0` if you used them, and how it compares with what the README reports.
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Session log
+      description: Optional. With `CS2METAL_VULKAN_TRACE=1` the log shows the pacing of the frames.
+      render: text
