@@ -30,8 +30,8 @@
 #
 # The opening movie is left out, at the owner's request: under this host it
 # stands still on single frames while the menu loads behind it. The game ignores
-# -novid, so the host answers "no such file" for the movie (CS2METAL_NO_INTRO);
-# the game then shows a black screen for those three seconds, and its menu.
+# -novid, so the host gives it half a second of black in the movie's place
+# (CS2METAL_NO_INTRO); the screen stays black until the menu is ready.
 #
 # Environment:
 #   CS2METAL_KIT    the directory with cs2-linux/ and sniper/ (default ~/cs2metal-kit)

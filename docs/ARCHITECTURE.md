@@ -135,12 +135,13 @@ that made it.
 - Linux-only files and calls the game reads are synthesized: `/proc/self/exe`,
   `/proc/self/maps`, `/proc/cpuinfo`, `/proc/meminfo`, `getrandom`, `uname`,
   `prlimit64`.
-- Files the guest is not to find: with `CS2METAL_NO_INTRO` set, a path that names one
-  of the game's opening movies (the `intro` files of its Panorama videos) is
-  answered with "no such file". The game ignores `-novid` in this build; not finding
-  the movie, it shows a black screen for the three seconds the movie would have
-  taken and then its menu (client boot 78 of 27 November 2026). The file itself is
-  not touched.
+- A stand-in for the opening movie: with `CS2METAL_NO_INTRO` set, a read of one of
+  the game's opening movies (the `intro` files of its Panorama videos) is answered
+  with the project's own file, half a second of black frames with silent sound in
+  the same formats. The game ignores `-novid` in this build, and shows an error on
+  screen when the movie is missing; given the stand-in it shows a black screen for
+  the three and a half seconds until its menu is ready (client boot 79 of 27
+  November 2026). The game's file is not touched.
 - Signals: the host's own handlers receive macOS signals and deliver Linux frames to
   the guest's handlers; the guest's `__restore_rt` trampolines, the only raw `syscall`
   left in the rebuilt glibc, are never run.

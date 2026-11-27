@@ -8,6 +8,7 @@
 //! itself, through system calls this crate answers; each executable file mapping
 //! gets T-001 as it is made.
 
+mod black_movie;
 mod brk;
 mod epoll;
 // Guest code runs only in an x86-64 process; elsewhere the report is not installed.

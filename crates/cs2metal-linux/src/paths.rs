@@ -132,6 +132,20 @@ fn is_intro_movie(path: &[u8]) -> bool {
     name.starts_with(b"intro") && name.ends_with(b".webm") && !name.contains(&b'/')
 }
 
+/// The host file that stands for the opening movie: the bytes of
+/// [`crate::black_movie`], written once to the temporary directory.
+fn black_movie() -> Option<CString> {
+    static FILE: OnceLock<Option<CString>> = OnceLock::new();
+    FILE.get_or_init(|| {
+        let directory = std::env::temp_dir().join(format!("cs2metal-{}-movie", std::process::id()));
+        std::fs::create_dir_all(&directory).ok()?;
+        let file = directory.join("black.webm");
+        std::fs::write(&file, crate::black_movie::BYTES).ok()?;
+        c_path(&file)
+    })
+    .clone()
+}
+
 /// Where the host should look for a guest path, or a Linux errno.
 pub(crate) fn resolve<'a>(
     path: &'a CStr,
@@ -139,10 +153,13 @@ pub(crate) fn resolve<'a>(
     how: Use,
 ) -> Result<Cow<'a, CStr>, i64> {
     // The game does not skip its opening movie by any option of its own in
-    // this build. Asked not to find the movie, it goes on to its menu; the
-    // file itself is not touched.
+    // this build, and says so on screen if the file is missing. It is given
+    // half a second of black instead; its own file is not touched.
     if no_intro() && is_intro_movie(path.to_bytes()) {
-        return Err(crate::translate::ENOENT);
+        return match (how, black_movie()) {
+            (Use::Read, Some(movie)) => Ok(Cow::Owned(movie)),
+            _ => Err(crate::translate::ENOENT),
+        };
     }
     if let Some(shim) = crate::steam::redirect(path)
         .or_else(|| crate::sdl::redirect(path))
@@ -215,6 +232,17 @@ pub(crate) fn resolve<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_stand_in_for_the_opening_movie_is_a_webm_file() {
+        // EBML's magic number, and the document type a little further on.
+        let movie = crate::black_movie::BYTES;
+        assert_eq!(movie[..4], [0x1a, 0x45, 0xdf, 0xa3]);
+        assert!(movie[..64].windows(4).any(|w| w == b"webm"));
+        let file = black_movie().expect("file");
+        let written = std::fs::read(file.to_str().expect("utf-8")).expect("read");
+        assert_eq!(written, movie);
+    }
 
     #[test]
     fn the_opening_movies_are_the_intro_files_of_the_panorama_videos() {
