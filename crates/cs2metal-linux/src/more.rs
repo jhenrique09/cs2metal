@@ -168,6 +168,33 @@ fn statfs(st: &libc::statfs, out: u64) -> i64 {
     0
 }
 
+/// `gettimeofday(tv, tz)`. Linux's `struct timeval` is two 64-bit words. The
+/// host's holds its microseconds in 32 bits, so the host's own call on the
+/// guest's pointer would leave the upper half of the guest's `tv_usec` as it
+/// was: whatever the guest's stack held there.
+fn gettimeofday(tv: u64, tz: u64) -> i64 {
+    let mut now = libc::timeval {
+        tv_sec: 0,
+        tv_usec: 0,
+    };
+    // SAFETY: gettimeofday writes into the struct.
+    if unsafe { libc::gettimeofday(&mut now, std::ptr::null_mut()) } != 0 {
+        return result(-1);
+    }
+    if tv != 0 {
+        // SAFETY: the guest passes a Linux struct timeval.
+        unsafe {
+            std::ptr::write_unaligned(tv as *mut [i64; 2], [now.tv_sec, i64::from(now.tv_usec)]);
+        }
+    }
+    if tz != 0 {
+        // SAFETY: the guest passes a struct timezone, two ints; UTC, as Linux
+        // answers.
+        unsafe { std::ptr::write_unaligned(tz as *mut [i32; 2], [0, 0]) };
+    }
+    0
+}
+
 /// `tgkill` and `kill` sent to this process: SIGABRT aborts, signal 0 probes.
 fn kill(signal: u64) -> i64 {
     match signal {
@@ -293,10 +320,7 @@ pub(crate) fn answer(f: &SyscallFrame) -> Option<i64> {
                 }
             }
             95 => i64::from(libc::umask(a0 as libc::mode_t)),
-            96 => result(i64::from(libc::gettimeofday(
-                a0 as *mut libc::timeval,
-                std::ptr::null_mut(),
-            ))),
+            96 => gettimeofday(a0, a1),
             97 => {
                 // getrlimit: the same answers as prlimit64.
                 if a1 != 0 {
@@ -494,4 +518,28 @@ pub(crate) fn answer(f: &SyscallFrame) -> Option<i64> {
         }
     };
     Some(value)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The guest's buffer starts as stack garbage would: all ones.
+    #[test]
+    fn gettimeofday_writes_all_of_linux_timeval() {
+        let mut tv = [-1i64; 2];
+        let mut tz = [-1i32; 2];
+        let status = gettimeofday(
+            std::ptr::from_mut(&mut tv) as u64,
+            std::ptr::from_mut(&mut tz) as u64,
+        );
+        assert_eq!(status, 0);
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("clock")
+            .as_secs() as i64;
+        assert!((now - 2..=now).contains(&tv[0]), "seconds {}", tv[0]);
+        assert!((0..1_000_000).contains(&tv[1]), "microseconds {}", tv[1]);
+        assert_eq!(tz, [0, 0]);
+    }
 }
