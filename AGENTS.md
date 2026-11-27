@@ -54,14 +54,17 @@ comes with tests in the same commit.
 Validation never launches the game, contacts Steam, or downloads game files. Steps
 that need the game are owner actions recorded in `docs/IMPLEMENTATION_PLAN.md`.
 
-One exception, authorized by the owner on 27 November 2026 for roadmap steps C4 and
-C5: an agent may boot the game itself, only through `cs2metal run` (which verifies
-the installation against its baseline first), only with `-dedicated -insecure`, and
-never signed in to Steam or with any credential. Each boot runs under a timeout, its
-log goes to the ignored `runs/` directory, and tracked files cite only what the
-policy allows from it (counts, system call numbers, public interface names). The
-exception ends when the engine reaches its Steam initialization and its first SDL
-or Vulkan call; client boots, a window, and anything signed in stay owner actions.
+An exception, authorized by the owner on 27 November 2026 for roadmap steps C4, C5,
+D, E, and F: an agent may boot the game itself, only through `cs2metal run` (which
+verifies the installation against its baseline first) and always with `-insecure`,
+so that no VAC-secured server is ever joined. Dedicated-server boots may log on to
+Steam anonymously through the bridge; client boots may open a window and use the
+owner's signed-in macOS Steam client. Credentials reach Steam only through that
+client: no project tool asks for, reads, stores, or logs one. Each boot runs under a
+timeout, its log goes to the ignored `runs/` directory, and tracked files cite only
+what the policy allows from it (counts, system call numbers, public interface
+names). Matchmaking, secure servers, and anything that changes the owner's account
+stay owner actions.
 
 ## Commits
 
