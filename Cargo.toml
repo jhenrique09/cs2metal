@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/cs2metal-elf"]
+members = ["crates/*", "apps/*"]
 
 [workspace.package]
 version = "0.1.0"
@@ -9,7 +9,12 @@ rust-version = "1.85"
 publish = false
 
 [workspace.dependencies]
+cs2metal-elf = { path = "crates/cs2metal-elf" }
+cs2metal-inventory = { path = "crates/cs2metal-inventory" }
+clap = { version = "4", features = ["derive"] }
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tempfile = "3"
 
 [workspace.lints.rust]
 # Crates that need unsafe code (the loader) opt out explicitly.
