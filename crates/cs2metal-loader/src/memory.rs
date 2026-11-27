@@ -38,6 +38,12 @@ pub(crate) struct Region {
 // thread that created it.
 unsafe impl Send for Region {}
 
+// SAFETY: the methods that write through `&self` run only while the loader builds
+// a module, under an exclusive borrow of its namespace or bridge; once built, the
+// loader only reads. What guest code does to its own memory is the guest's
+// concern, as it is under ld.so.
+unsafe impl Sync for Region {}
+
 impl Region {
     /// Reserves `len` bytes, inaccessible until something is mapped there.
     pub fn reserve(len: u64) -> Result<Self> {
@@ -152,6 +158,31 @@ impl Region {
         // SAFETY: in bounds (checked); relocations are applied while every segment
         // is still mapped writable; ELF does not promise alignment, hence unaligned.
         unsafe { ptr::write_unaligned(self.base.add(at).cast::<u64>(), value) };
+        Ok(())
+    }
+
+    /// Reads one byte at `offset`. The page must be mapped readable.
+    pub fn read_u8(&self, offset: u64) -> Result<u8> {
+        let at = self.check(offset, 1)?;
+        // SAFETY: in bounds (checked), and only called on loaded segments.
+        Ok(unsafe { ptr::read(self.base.add(at)) })
+    }
+
+    /// Writes one byte at `offset`. The page must be mapped writable.
+    pub fn write_u8(&self, offset: u64, value: u8) -> Result<()> {
+        let at = self.check(offset, 1)?;
+        // SAFETY: in bounds (checked), and only called while every segment is
+        // still mapped writable, before protections are set.
+        unsafe { ptr::write(self.base.add(at), value) };
+        Ok(())
+    }
+
+    /// Copies `bytes` to `offset`. The range must be mapped writable.
+    pub fn write_bytes(&self, offset: u64, bytes: &[u8]) -> Result<()> {
+        let at = self.check(offset, bytes.len() as u64)?;
+        // SAFETY: in bounds (checked); the source is a separate Rust slice, so the
+        // ranges cannot overlap.
+        unsafe { ptr::copy_nonoverlapping(bytes.as_ptr(), self.base.add(at), bytes.len()) };
         Ok(())
     }
 

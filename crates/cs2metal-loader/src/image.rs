@@ -13,8 +13,54 @@ use cs2metal_elf::{
 
 use crate::error::{Error, Result};
 use crate::memory::{Region, page_size, round_down, round_up};
+use crate::tls::TlsSlot;
 
 const R_X86_64_NONE: u32 = 0;
+const R_X86_64_DTPMOD64: u32 = 16;
+const R_X86_64_DTPOFF64: u32 = 17;
+const R_X86_64_TPOFF64: u32 = 18;
+const FS_PREFIX: u8 = 0x64;
+const GS_PREFIX: u8 = 0x65;
+
+/// Whether to apply transform T-001, the `fs` to `gs` prefix rewrite, to the code
+/// of the modules a namespace maps.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FsRewrite {
+    /// Code is mapped as it is on disk.
+    #[default]
+    Off,
+    /// Rewrite every located prefix in proven code; refuse a module with an
+    /// unexplained `fs` decode that could be a real access.
+    On,
+    /// As `On`, and load such a module anyway: the owner's explicit override.
+    OnAllowingUnexplained,
+}
+
+/// What T-001 did to one module, the counter the transform registry requires.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FsReport {
+    /// Prefix bytes changed from `0x64` to `0x65`.
+    pub rewritten: u64,
+    /// `fs` decodes in data the code refers to, left alone.
+    pub in_data: u64,
+    /// Unexplained `fs` decodes that could be real accesses, left alone.
+    pub unexplained: u64,
+}
+
+/// What a symbol reference binds to.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Bound {
+    /// An address, or for a TLS symbol its offset in the defining module's block.
+    pub value: u64,
+    /// The defining module's TLS slot, for a TLS symbol.
+    pub tls: Option<TlsSlot>,
+}
+
+impl Bound {
+    pub fn address(value: u64) -> Self {
+        Self { value, tls: None }
+    }
+}
 
 /// An import the module asks the caller to resolve.
 #[derive(Debug, Clone, Copy)]
@@ -37,6 +83,9 @@ pub struct Image {
     elf: Elf,
     /// Indices into `elf.symbols` of the defined, non-local symbols, by name.
     exports: HashMap<String, Vec<usize>>,
+    /// The module's own TLS slot, if it has a TLS segment in a namespace.
+    pub(crate) tls_slot: Option<TlsSlot>,
+    fs_report: Option<FsReport>,
     initialized: bool,
     finalized: bool,
 }
@@ -74,8 +123,9 @@ pub(crate) fn provides(def: &DynamicSymbol, name: &str, version: Option<&str>) -
 }
 
 impl Image {
-    /// Maps the object at `path` and its segments, all writable for relocation.
-    pub(crate) fn map(path: &Path) -> Result<Self> {
+    /// Maps the object at `path` and its segments, all writable for relocation,
+    /// and applies T-001 to its code if asked.
+    pub(crate) fn map(path: &Path, fs: FsRewrite) -> Result<Self> {
         let data = fs::read(path)?;
         let file = File::open(path)?;
         let elf = cs2metal_elf::parse(&data)?;
@@ -141,15 +191,48 @@ impl Image {
                 exports.entry(s.name.clone()).or_default().push(i);
             }
         }
-        Ok(Self {
+        let mut image = Self {
             region,
             bias,
             lo,
             elf,
             exports,
+            tls_slot: None,
+            fs_report: None,
             initialized: false,
             finalized: false,
-        })
+        };
+        if fs != FsRewrite::Off {
+            image.fs_report = Some(image.rewrite_fs(&data, fs)?);
+        }
+        Ok(image)
+    }
+
+    /// Transform T-001: changes each `fs` prefix that the code scan locates in
+    /// proven code to `gs`, in this private mapping only.
+    fn rewrite_fs(&self, data: &[u8], policy: FsRewrite) -> Result<FsReport> {
+        let scan = cs2metal_codescan::scan_module(data, &self.elf);
+        let report = FsReport {
+            rewritten: scan.rewrite_sites.len() as u64,
+            in_data: scan.data_fs.values().sum(),
+            unexplained: scan.unexplained_addressed(),
+        };
+        if report.unexplained > 0 && policy != FsRewrite::OnAllowingUnexplained {
+            return Err(Error::UnexplainedFs(report.unexplained));
+        }
+        for &site in &scan.rewrite_sites {
+            let at = self.offset_span(site, 1)?;
+            if self.region.read_u8(at)? != FS_PREFIX {
+                return Err(Error::RewriteMismatch { vaddr: site });
+            }
+            self.region.write_u8(at, GS_PREFIX)?;
+        }
+        Ok(report)
+    }
+
+    /// What T-001 did to this module, if it ran.
+    pub fn fs_report(&self) -> Option<FsReport> {
+        self.fs_report
     }
 
     fn loads(elf: &Elf) -> Vec<Segment> {
@@ -187,10 +270,10 @@ impl Image {
     /// it does not define, with an address or `None`. Initializers have not run.
     /// [`Namespace`](crate::Namespace) loads modules together, with a global scope.
     pub fn load(path: &Path, resolve: &mut dyn FnMut(Import<'_>) -> Option<u64>) -> Result<Self> {
-        let image = Self::map(path)?;
+        let image = Self::map(path, FsRewrite::Off)?;
         image.relocate(&mut |symbol| {
             if symbol.defined {
-                return image.definition(symbol);
+                return image.bound(symbol);
             }
             let import = Import {
                 name: &symbol.name,
@@ -198,8 +281,8 @@ impl Image {
                 weak: symbol.binding == SymbolBinding::Weak,
             };
             match resolve(import) {
-                Some(address) => Ok(address),
-                None if import.weak => Ok(0),
+                Some(address) => Ok(Bound::address(address)),
+                None if import.weak => Ok(Bound::address(0)),
                 None => Err(Error::Unresolved(symbol.name.clone())),
             }
         })?;
@@ -230,6 +313,19 @@ impl Image {
             .find(|s| provides(s, name, version))
     }
 
+    /// What a reference to one of this module's definitions binds to: an address,
+    /// or for a TLS symbol its offset and this module's slot.
+    pub(crate) fn bound(&self, symbol: &DynamicSymbol) -> Result<Bound> {
+        if symbol.kind == SymbolKind::Tls {
+            let tls = self.tls_slot.ok_or(Error::UnsupportedTls)?;
+            return Ok(Bound {
+                value: symbol.value,
+                tls: Some(tls),
+            });
+        }
+        self.definition(symbol).map(Bound::address)
+    }
+
     /// The run-time address of one of this module's definitions. An IFUNC is
     /// resolved by calling its resolver.
     pub(crate) fn definition(&self, symbol: &DynamicSymbol) -> Result<u64> {
@@ -258,10 +354,14 @@ impl Image {
     /// The offset in the region of an object virtual address, checked to lie in a
     /// loaded segment.
     fn offset(&self, vaddr: u64) -> Result<u64> {
+        self.offset_span(vaddr, 8)
+    }
+
+    fn offset_span(&self, vaddr: u64, len: u64) -> Result<u64> {
         let inside = self.elf.segments.iter().any(|s| {
             s.kind == PT_LOAD
                 && vaddr >= s.vaddr
-                && vaddr.saturating_add(8) <= s.vaddr + s.memory_size
+                && vaddr.saturating_add(len) <= s.vaddr + s.memory_size
         });
         if !inside {
             return Err(Error::RelocationOutOfBounds { offset: vaddr });
@@ -274,7 +374,7 @@ impl Image {
     /// it defines itself, which another module may interpose.
     pub(crate) fn relocate(
         &self,
-        bind: &mut dyn FnMut(&DynamicSymbol) -> Result<u64>,
+        bind: &mut dyn FnMut(&DynamicSymbol) -> Result<Bound>,
     ) -> Result<()> {
         // IRELATIVE entries run guest resolvers, which may read other relocated
         // data, so they go last, as in glibc.
@@ -302,7 +402,7 @@ impl Image {
                     let target = if symbol.binding == SymbolBinding::Local {
                         self.definition(symbol)?
                     } else {
-                        bind(symbol)?
+                        bind(symbol)?.value
                     };
                     if r.kind == R_X86_64_64 {
                         target.wrapping_add(addend)
@@ -310,11 +410,39 @@ impl Image {
                         target
                     }
                 }
+                R_X86_64_DTPMOD64 | R_X86_64_DTPOFF64 | R_X86_64_TPOFF64 => {
+                    self.tls_value(r, addend, bind)?
+                }
                 other => return Err(Error::UnsupportedRelocation(other)),
             };
             self.region.write_u64(self.offset(r.offset)?, value)?;
         }
         Ok(())
+    }
+
+    /// The value of a TLS relocation. Symbol 0 means this module's own block (the
+    /// local-dynamic model and static TLS of local variables).
+    fn tls_value(
+        &self,
+        r: &Relocation,
+        addend: u64,
+        bind: &mut dyn FnMut(&DynamicSymbol) -> Result<Bound>,
+    ) -> Result<u64> {
+        let (value, slot) = match self.elf.relocation_symbol(r) {
+            None => (0, self.tls_slot),
+            Some(symbol) if symbol.binding == SymbolBinding::Local => (symbol.value, self.tls_slot),
+            Some(symbol) => {
+                let bound = bind(symbol)?;
+                (bound.value, bound.tls)
+            }
+        };
+        let slot = slot.ok_or(Error::UnsupportedTls)?;
+        Ok(match r.kind {
+            R_X86_64_DTPMOD64 => slot.id,
+            R_X86_64_DTPOFF64 => value.wrapping_add(addend),
+            // The block is at tp - offset, so the variable is at tp + this.
+            _ => value.wrapping_add(addend).wrapping_sub(slot.offset),
+        })
     }
 
     fn array(&self, at: Option<u64>, entries: u64) -> Result<Vec<u64>> {

@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use cs2metal_elf::{DynamicSymbol, SymbolBinding};
 
 use crate::error::{Error, Result};
-use crate::image::{Image, Import};
+use crate::image::{Bound, FsRewrite, Image, Import};
+use crate::tls::{GuestThread, TlsLayout, TlsModule};
 
 /// One loaded module.
 #[derive(Debug)]
@@ -16,6 +17,10 @@ pub struct Module {
     pub path: PathBuf,
     pub image: Image,
 }
+
+/// The dynamic loader's own name: cs2metal is the guest's `ld.so`, so this library
+/// is always the host's.
+const DYNAMIC_LOADER: &str = "ld-linux-x86-64.so.2";
 
 /// Modules in load order, which is the order of the global lookup scope.
 #[derive(Debug, Default)]
@@ -28,6 +33,8 @@ pub struct Namespace {
     /// `DT_NEEDED` entries naming them are not loaded, and imports nothing in the
     /// scope defines go to the host resolver.
     host_libraries: BTreeSet<String>,
+    fs: FsRewrite,
+    tls: TlsLayout,
 }
 
 fn file_name(path: &Path) -> String {
@@ -47,13 +54,27 @@ fn expand(entry: &str, origin: &Path) -> PathBuf {
 
 impl Namespace {
     pub fn new() -> Self {
-        Self::default()
+        let mut ns = Self::default();
+        ns.host_libraries.insert(DYNAMIC_LOADER.to_owned());
+        ns
     }
 
     /// Adds a directory searched for needed libraries, like `LD_LIBRARY_PATH`.
     pub fn search(&mut self, dir: impl Into<PathBuf>) -> &mut Self {
         self.search.push(dir.into());
         self
+    }
+
+    /// Whether T-001 rewrites the code of the modules loaded from now on.
+    pub fn rewrite_fs(&mut self, policy: FsRewrite) -> &mut Self {
+        self.fs = policy;
+        self
+    }
+
+    /// A guest thread control block for the calling thread, with a TLS block for
+    /// every module loaded so far.
+    pub fn thread(&self) -> Result<GuestThread> {
+        GuestThread::new(&self.tls)
     }
 
     /// Declares a library the host provides, such as `libc.so.6`.
@@ -109,7 +130,7 @@ impl Namespace {
         host: &mut dyn FnMut(Import<'_>) -> Option<u64>,
     ) -> Result<usize> {
         let first = self.modules.len();
-        let image = Image::map(path)?;
+        let image = Image::map(path, self.fs)?;
         let name = image
             .soname()
             .map_or_else(|| file_name(path), str::to_owned);
@@ -129,7 +150,7 @@ impl Namespace {
                     continue;
                 }
                 let found = self.find(&lib, &pending[i])?;
-                let image = Image::map(&found)?;
+                let image = Image::map(&found, self.fs)?;
                 pending.push(Module {
                     name: lib,
                     path: found,
@@ -138,13 +159,37 @@ impl Namespace {
                 queue.push_back(pending.len() - 1);
             }
         }
+        let tls_before = (self.tls.modules.len(), self.tls.used, self.tls.align);
+        for module in &mut pending {
+            self.place_tls(module)?;
+        }
         self.modules.extend(pending);
         let linked = self.link(first, host);
         if linked.is_err() {
             // Nothing of a failed load stays in the scope.
             self.modules.truncate(first);
+            self.tls.modules.truncate(tls_before.0);
+            (self.tls.used, self.tls.align) = (tls_before.1, tls_before.2);
         }
         linked.map(|()| first)
+    }
+
+    /// Gives a module with a TLS segment its id and static block.
+    fn place_tls(&mut self, module: &mut Module) -> Result<()> {
+        let Some(tls) = module.image.elf().tls else {
+            return Ok(());
+        };
+        if tls.align > 1 && tls.vaddr % tls.align != 0 {
+            return Err(Error::UnsupportedTls);
+        }
+        let slot = self.tls.place(tls.memory_size, tls.align);
+        module.image.tls_slot = Some(slot);
+        self.tls.modules.push(TlsModule {
+            slot,
+            template: module.image.address(tls.vaddr),
+            file_size: tls.file_size,
+        });
+        Ok(())
     }
 
     /// Relocates and protects the modules from `first` on, dependencies first, so
@@ -175,10 +220,10 @@ impl Namespace {
         from: &Module,
         symbol: &DynamicSymbol,
         host: &mut dyn FnMut(Import<'_>) -> Option<u64>,
-    ) -> Result<u64> {
+    ) -> Result<Bound> {
         let version = symbol.version.as_ref().map(|v| v.name.as_str());
         if let Some((module, def)) = self.lookup(&symbol.name, version) {
-            return module.image.definition(def);
+            return module.image.bound(def);
         }
         let weak = symbol.binding == SymbolBinding::Weak;
         let import = Import {
@@ -187,8 +232,8 @@ impl Namespace {
             weak,
         };
         match host(import) {
-            Some(address) => Ok(address),
-            None if weak => Ok(0),
+            Some(address) => Ok(Bound::address(address)),
+            None if weak => Ok(Bound::address(0)),
             None => Err(Error::UnresolvedIn {
                 name: symbol.name.clone(),
                 module: from.name.clone(),

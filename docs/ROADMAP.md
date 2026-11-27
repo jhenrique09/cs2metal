@@ -395,6 +395,12 @@ Slices, each with a test that runs guest code under Rosetta 2 in `tools/check.sh
    definition overridden and a call interposed inside its own module.
 3. TLS and the GS bridge: per-thread blocks, `__tls_get_addr`, T-001 behind a flag,
    host and neutral thunks, with the `tls` and `stack_guard` fixtures.
+   **Done, 27 November 2026, on the `tlsprobe` fixture,** which needs no C library:
+   T-001 rewrites its 13 `fs` accesses; global-dynamic, local-dynamic,
+   initial-exec, and `.tbss` variables give the Linux values in three host threads
+   and the main one; the canary and the thread pointer go through `gs`; and a call
+   out to a host function crosses the bridge and back. The `tls` and `stack_guard`
+   executables need the C library of slice 4.
 4. The C library the `hello` fixture needs, which meets the C3 bake-off.
 
 ### C3. The libc route, chosen by measurement, then its first slice (to build, M then XL)

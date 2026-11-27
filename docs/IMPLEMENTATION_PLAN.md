@@ -118,6 +118,11 @@ and the M2 to M3 scope below is revised to match.
   (RPATH, search directories, RUNPATH with `$ORIGIN`), binds with glibc's version,
   weak, and interposition rules, relocates dependencies first, and leaves nothing
   behind when a load fails. The `scope` fixture matches its Linux output.
+  Third slice done the same day: static TLS in variant II with a DTV and a neutral
+  `__tls_get_addr`, the TLS relocations, T-001 behind a flag with its counters and
+  refusal policy, and the GS bridge both ways (a guest call trampoline and a host
+  thunk with a per-thread stack). The `tlsprobe` fixture matches its Linux output
+  from four threads, 20 runs out of 20.
 - [ ] Acceptance of the [TLS decision](TLS_UNDER_ROSETTA_DECISION.md): fixtures that
   use `__thread`, the stack protector, and threads run correctly with the rewrite.
 

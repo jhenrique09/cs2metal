@@ -197,6 +197,7 @@ dependencies = [
 name = "cs2metal-loader"
 version = "0.1.0"
 dependencies = [
+ "cs2metal-codescan",
  "cs2metal-elf",
  "libc",
  "tempfile",

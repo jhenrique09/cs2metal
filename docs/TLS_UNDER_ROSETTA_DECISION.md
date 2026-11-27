@@ -11,6 +11,12 @@ build: the "decode, never scan" condition now names the code-discovery rule, and
 load policy says which unexplained decodes block a module
 ([code discovery](CODE_DISCOVERY_2026-11-27.md)). The coverage condition is met.
 
+Evidence for acceptance, 27 November 2026: the loader implements the transform as
+written here, and on the `tlsprobe` fixture under Rosetta 2 every TLS model, the
+stack protector, the thread pointer, and a guest-to-host call give the Linux
+results from four threads. The executable fixtures that need a C library follow
+with it. Acceptance waits for the owner's sign-off.
+
 ## Context
 
 Linux x86-64 code addresses thread-local storage and the stack-protector canary

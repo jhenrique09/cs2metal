@@ -39,6 +39,17 @@ pub enum Error {
     Map(io::Error),
     /// Guest code runs only in an x86-64 process (under Rosetta 2 on Apple silicon).
     ForeignHost,
+    /// A TLS relocation or symbol outside a namespace's TLS layout.
+    UnsupportedTls,
+    /// T-001 found this many unexplained `fs` decodes that could be real accesses.
+    UnexplainedFs(u64),
+    /// A byte T-001 was to rewrite is not an `fs` prefix: the scan and the
+    /// mapping disagree.
+    RewriteMismatch {
+        vaddr: u64,
+    },
+    /// Guest calls take at most six integer arguments.
+    TooManyArguments(usize),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -70,6 +81,18 @@ impl fmt::Display for Error {
             }
             Self::Map(e) => write!(f, "mapping failed: {e}"),
             Self::ForeignHost => write!(f, "guest code runs only in an x86-64 process"),
+            Self::UnsupportedTls => write!(f, "TLS outside a namespace's TLS layout"),
+            Self::UnexplainedFs(n) => write!(
+                f,
+                "{n} unexplained fs decodes could be real accesses; refusing T-001"
+            ),
+            Self::RewriteMismatch { vaddr } => {
+                write!(
+                    f,
+                    "byte at {vaddr:#x} is not the fs prefix the scan located"
+                )
+            }
+            Self::TooManyArguments(n) => write!(f, "{n} arguments; guest calls take at most 6"),
         }
     }
 }

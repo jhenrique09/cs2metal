@@ -88,7 +88,7 @@ with its decision record and the counter the host logs at load time.
 
 | Id | Transform | Decision | State |
 | --- | --- | --- | --- |
-| T-001 | Rewrite `fs` segment-override prefixes to `gs` in private mappings of executable segments | [TLS decision](TLS_UNDER_ROSETTA_DECISION.md) | Proposed |
+| T-001 | Rewrite `fs` segment-override prefixes to `gs` in private mappings of executable segments | [TLS decision](TLS_UNDER_ROSETTA_DECISION.md) | Implemented behind `FsRewrite`, off by default; counted per module (`FsReport`: rewritten, in data, unexplained). Decision proposed |
 
 ## Execution domains and the bridge
 
