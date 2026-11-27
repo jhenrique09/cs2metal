@@ -321,7 +321,9 @@ extern "C" fn open_audio_device_stream(
     let frame = u64::from((format & 0xff) / 8) * u64::from(channels.max(1));
     if tracing() {
         eprintln!(
-            "cs2metal: SDL audio stream with a callback: format {format:#x}, {channels} channels, {freq} Hz"
+            "cs2metal: SDL audio stream with a callback: format {format:#x}, {channels} channels, \
+             {freq} Hz, on device {device:#x} ({})",
+            device_name(device)
         );
     }
     if let Ok(mut pumps) = PUMPS.lock() {
@@ -336,6 +338,84 @@ extern "C" fn open_audio_device_stream(
         PUMPS_CHANGED.notify_all();
     }
     stream
+}
+
+/// A wrapper that counts the calls of the host library's `$name`, which takes
+/// at most three integer arguments, for the trace.
+macro_rules! counted {
+    ($wrapper:ident, $name:literal) => {
+        extern "C" fn $wrapper(a: u64, b: u64, c: u64) -> u64 {
+            static CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let n = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+            if n.is_power_of_two() {
+                eprintln!("cs2metal: {} (call {n})", $name);
+            }
+            let f = real($name);
+            if f == 0 {
+                return 0;
+            }
+            // SAFETY: the host library's function of that name; the ABI
+            // ignores arguments it does not take.
+            let f = unsafe { std::mem::transmute::<usize, extern "C" fn(u64, u64, u64) -> u64>(f) };
+            f(a, b, c)
+        }
+    };
+}
+
+counted!(counted_clear, "SDL_ClearAudioStream");
+counted!(counted_flush, "SDL_FlushAudioStream");
+counted!(counted_pause, "SDL_PauseAudioDevice");
+counted!(counted_resume, "SDL_ResumeAudioDevice");
+counted!(counted_get, "SDL_GetAudioStreamData");
+
+/// What host SDL calls the audio device `device`, for the trace.
+fn device_name(device: u32) -> String {
+    let f = real("SDL_GetAudioDeviceName");
+    if f == 0 {
+        return String::new();
+    }
+    // SAFETY: the host library's SDL_GetAudioDeviceName.
+    let f: extern "C" fn(u32) -> *const c_char = unsafe { std::mem::transmute(f) };
+    let name = f(device);
+    if name.is_null() {
+        return "no name".to_owned();
+    }
+    // SAFETY: SDL returns a C string.
+    unsafe { CStr::from_ptr(name) }
+        .to_string_lossy()
+        .into_owned()
+}
+
+/// The loudest sample in `len` bytes of 32-bit float audio at `data`.
+///
+/// # Safety
+///
+/// `data` must point at `len` readable bytes.
+unsafe fn peak(data: u64, len: usize) -> f32 {
+    (0..len / 4)
+        // SAFETY: the caller's contract.
+        .map(|i| unsafe { std::ptr::read_unaligned((data as *const f32).add(i)) }.abs())
+        .fold(0.0, f32::max)
+}
+
+/// `SDL_PutAudioStreamData(stream, data, len)`, traced: how much the game
+/// queues, and how loud, which tells silence queued from nothing queued.
+extern "C" fn put_audio_stream_data(stream: u64, data: u64, len: i32) -> bool {
+    let f = real("SDL_PutAudioStreamData");
+    if f == 0 {
+        return false;
+    }
+    static CALLS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+    if n.is_power_of_two() && data != 0 && len > 0 {
+        // SAFETY: the guest passes `len` bytes; read as the float samples the
+        // game's stream holds.
+        let peak = unsafe { peak(data, len as usize) };
+        eprintln!("cs2metal: SDL_PutAudioStreamData of {len} bytes, peak {peak:.4} (call {n})");
+    }
+    // SAFETY: the host library's SDL_PutAudioStreamData.
+    let f: extern "C" fn(u64, u64, i32) -> bool = unsafe { std::mem::transmute(f) };
+    f(stream, data, len)
 }
 
 /// `SDL_DestroyAudioStream(stream)`: its pump goes first, under the lock the
@@ -596,6 +676,12 @@ fn wrapper(name: &[u8]) -> Option<u64> {
         b"SDL_SetClipboardData" => set_clipboard_data as *const (),
         b"SDL_OpenAudioDeviceStream" => open_audio_device_stream as *const (),
         b"SDL_DestroyAudioStream" => destroy_audio_stream as *const (),
+        b"SDL_PutAudioStreamData" if tracing() => put_audio_stream_data as *const (),
+        b"SDL_ClearAudioStream" if tracing() => counted_clear as *const (),
+        b"SDL_FlushAudioStream" if tracing() => counted_flush as *const (),
+        b"SDL_PauseAudioDevice" if tracing() => counted_pause as *const (),
+        b"SDL_ResumeAudioDevice" if tracing() => counted_resume as *const (),
+        b"SDL_GetAudioStreamData" if tracing() => counted_get as *const (),
         b"SDL_MinimizeWindow" => minimize_window as *const (),
         b"SDL_CreateWindowWithProperties" => create_window_with_properties as *const (),
         b"SDL_IOFromFile" => io_from_file as *const (),
@@ -815,6 +901,14 @@ mod tests {
         assert_eq!(LOCKS.lock().expect("locks").last(), Some(&(false, 7)));
         let pumps = PUMPS.lock().expect("pumps");
         assert!(pumps.list.is_empty() && pumps.held == 0);
+    }
+
+    #[test]
+    fn the_peak_is_the_loudest_sample() {
+        let samples = [0.0f32, -0.5, 0.25];
+        // SAFETY: three samples, twelve bytes.
+        let loudest = unsafe { peak(samples.as_ptr() as u64, 12) };
+        assert!((loudest - 0.5).abs() < f32::EPSILON);
     }
 
     #[test]
