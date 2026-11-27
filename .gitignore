@@ -1,0 +1,34 @@
+# The documentation is a separate Git repository nested at docs/.
+/docs/
+
+# Build output.
+/target/
+**/*.rs.bk
+
+# Local configuration, reports and anything derived from game files.
+/cs2metal.local.toml
+/reports/
+/runs/
+/baselines/
+
+# Credentials and Steam session material must never be tracked.
+.env
+.env.*
+!.env.example
+ssfn*
+loginusers.vdf
+config.vdf
+*.pem
+*.p12
+*.key
+
+# Game content.
+*.vpk
+*.acf
+
+# Python and editor noise.
+__pycache__/
+*.py[cod]
+.DS_Store
+.idea/
+.vscode/
