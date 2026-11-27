@@ -20,6 +20,7 @@ mod steam;
 mod syscall;
 mod threads;
 mod translate;
+mod vulkan;
 
 use std::convert::Infallible;
 use std::ffi::CString;
@@ -205,6 +206,13 @@ pub fn exec(launch: &Launch) -> Result<Infallible, Error> {
         let shim = dir.join("shims/libSDL3.so.0");
         if let (Ok(mut slot), Ok(path)) = (
             sdl::SHIM.lock(),
+            CString::new(shim.to_string_lossy().as_bytes()),
+        ) {
+            *slot = Some(path);
+        }
+        let shim = dir.join("shims/libvulkan.so.1");
+        if let (Ok(mut slot), Ok(path)) = (
+            vulkan::SHIM.lock(),
             CString::new(shim.to_string_lossy().as_bytes()),
         ) {
             *slot = Some(path);

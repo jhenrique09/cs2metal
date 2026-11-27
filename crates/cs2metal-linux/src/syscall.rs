@@ -304,6 +304,9 @@ fn answer(f: &mut SyscallFrame) -> u64 {
     if f.number == crate::sdl::BIND_SDL {
         return crate::sdl::bind(f.arg0, f.arg1, f.arg2) as u64;
     }
+    if f.number == crate::vulkan::BIND_VULKAN {
+        return crate::vulkan::bind(f.arg0, f.arg1, f.arg2) as u64;
+    }
     if let Some(value) = crate::net::answer(f) {
         return value as u64;
     }

@@ -287,6 +287,25 @@ pub(crate) fn vulkan_loader() -> Option<String> {
         .or_else(|| Some(format!("{}/lib/libvulkan.1.dylib", vulkan_sdk()?)))
 }
 
+/// Points the macOS Vulkan loader at the SDK's MoltenVK manifest, in the host
+/// environment, unless the owner names drivers.
+pub(crate) fn prepare_vulkan_environment() {
+    if std::env::var_os("VK_DRIVER_FILES").is_some()
+        || std::env::var_os("VK_ICD_FILENAMES").is_some()
+    {
+        return;
+    }
+    if let Some(sdk) = vulkan_sdk() {
+        // SAFETY: the host environment; the guest's is separate.
+        unsafe {
+            std::env::set_var(
+                "VK_DRIVER_FILES",
+                format!("{sdk}/share/vulkan/icd.d/MoltenVK_icd.json"),
+            );
+        }
+    }
+}
+
 /// `SDL_Vulkan_LoadLibrary(path)`: the guest names its Linux loader, or none;
 /// host SDL loads the macOS loader.
 extern "C" fn vulkan_load_library(_path: *const c_char) -> bool {
@@ -336,21 +355,7 @@ pub(crate) fn bind(table: u64, names: u64, count: u64) -> i64 {
         eprintln!("cs2metal: the host's SDL 3 did not load from {path:?}");
         return crate::translate::ENOENT;
     }
-    // The macOS Vulkan loader host SDL loads finds MoltenVK through the SDK's
-    // driver manifest, unless the owner names drivers.
-    if std::env::var_os("VK_DRIVER_FILES").is_none()
-        && std::env::var_os("VK_ICD_FILENAMES").is_none()
-    {
-        if let Some(sdk) = vulkan_sdk() {
-            // SAFETY: the host environment; the guest's is separate.
-            unsafe {
-                std::env::set_var(
-                    "VK_DRIVER_FILES",
-                    format!("{sdk}/share/vulkan/icd.d/MoltenVK_icd.json"),
-                );
-            }
-        }
-    }
+    prepare_vulkan_environment();
     let mut bridge = match Bridge::new() {
         Ok(b) => b,
         Err(_) => return crate::translate::ENOMEM,

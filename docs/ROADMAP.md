@@ -575,6 +575,12 @@ device creation calls as they pass: the extensions and features the renderer ask
 for and the ones it refuses to start without. That closes Q-7 and completes the
 Vulkan research table with measurements. Gate: the renderer creates its device.
 
+State: the bridge is built, 27 November 2026 ([Vulkan bridge](VULKAN_BRIDGE.md)):
+`libvulkan.so.1` is answered with a shim on the macOS loader and MoltenVK, every
+function through a host thunk, with portability enumeration and the portability
+subset enabled on the way. A test creates an instance and a device through it
+under Rosetta 2.
+
 ### F3. Swapchain and first present (to build, M to L)
 
 Surface through `SDL_Vulkan_CreateSurface`, which on macOS yields a Metal layer;

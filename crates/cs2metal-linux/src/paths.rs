@@ -121,7 +121,10 @@ pub(crate) fn resolve<'a>(
     dirfd: libc::c_int,
     how: Use,
 ) -> Result<Cow<'a, CStr>, i64> {
-    if let Some(shim) = crate::steam::redirect(path).or_else(|| crate::sdl::redirect(path)) {
+    if let Some(shim) = crate::steam::redirect(path)
+        .or_else(|| crate::sdl::redirect(path))
+        .or_else(|| crate::vulkan::redirect(path))
+    {
         return Ok(Cow::Owned(shim));
     }
     let Some(overlay) = OVERLAY.get() else {
