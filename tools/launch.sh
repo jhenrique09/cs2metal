@@ -28,8 +28,14 @@
 # system either way (SDL is asked for video and audio only), and no effect of the
 # option was seen, in client boots 75 and 76 of 27 November 2026.
 #
+# The opening movie is left out, at the owner's request: under this host it
+# stands still on single frames while the menu loads behind it. The game ignores
+# -novid, so the host answers "no such file" for the movie (CS2METAL_NO_INTRO);
+# the game then shows a black screen for those three seconds, and its menu.
+#
 # Environment:
 #   CS2METAL_KIT    the directory with cs2-linux/ and sniper/ (default ~/cs2metal-kit)
+#   CS2METAL_KEEP_INTRO=1            play the opening movie
 #   CS2METAL_NO_OVERLAY=1            start without the Steam overlay
 #   CS2METAL_KEEP_VIDEO_SETTINGS=1   leave the video settings alone at the first launch too
 #   CS2METAL_*      diagnostics, passed through (e.g. CS2METAL_SDL_TRACE=1)
@@ -111,6 +117,10 @@ overlay="$HOME/Library/Application Support/Steam/Steam.AppBundle/Steam/Contents/
 if [ "${CS2METAL_NO_OVERLAY:-0}" != 1 ] && [ -f "$overlay" ]; then
     export DYLD_INSERT_LIBRARIES="$overlay"
     export SteamAppId=730 SteamGameId=730
+fi
+
+if [ "${CS2METAL_KEEP_INTRO:-0}" != 1 ]; then
+    export CS2METAL_NO_INTRO=1
 fi
 
 mkdir -p "$logs"
