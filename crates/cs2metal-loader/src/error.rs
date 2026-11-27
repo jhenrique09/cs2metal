@@ -25,6 +25,16 @@ pub enum Error {
     },
     /// A non-weak import that nothing provides.
     Unresolved(String),
+    /// The same, for a module loaded in a namespace.
+    UnresolvedIn {
+        name: String,
+        module: String,
+    },
+    /// A needed library found in no search directory.
+    NotFound {
+        name: String,
+        needed_by: String,
+    },
     /// The operating system refused a mapping or protection change.
     Map(io::Error),
     /// Guest code runs only in an x86-64 process (under Rosetta 2 on Apple silicon).
@@ -52,6 +62,12 @@ impl fmt::Display for Error {
                 write!(f, "relocation at {offset:#x} is outside writable memory")
             }
             Self::Unresolved(name) => write!(f, "unresolved import {name}"),
+            Self::UnresolvedIn { name, module } => {
+                write!(f, "unresolved import {name} of {module}")
+            }
+            Self::NotFound { name, needed_by } => {
+                write!(f, "{name}, needed by {needed_by}, was not found")
+            }
             Self::Map(e) => write!(f, "mapping failed: {e}"),
             Self::ForeignHost => write!(f, "guest code runs only in an x86-64 process"),
         }

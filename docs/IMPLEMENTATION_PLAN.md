@@ -114,6 +114,10 @@ and the M2 to M3 scope below is revised to match.
   on 27 November 2026: one module mapped privately from a read-only file, relocated,
   protected with RELRO, initialized, called, and finalized under Rosetta 2, with 5
   tests (4 per architecture) run by `tools/check.sh` on both arm64 and x86-64.
+  Second slice done the same day: a namespace that loads `DT_NEEDED` breadth first
+  (RPATH, search directories, RUNPATH with `$ORIGIN`), binds with glibc's version,
+  weak, and interposition rules, relocates dependencies first, and leaves nothing
+  behind when a load fails. The `scope` fixture matches its Linux output.
 - [ ] Acceptance of the [TLS decision](TLS_UNDER_ROSETTA_DECISION.md): fixtures that
   use `__thread`, the stack protector, and threads run correctly with the rewrite.
 

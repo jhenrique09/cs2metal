@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::{self, File};
 use std::os::fd::AsFd;
 use std::path::Path;
@@ -34,6 +35,8 @@ pub struct Image {
     /// The lowest page-aligned virtual address, where the region starts.
     lo: u64,
     elf: Elf,
+    /// Indices into `elf.symbols` of the defined, non-local symbols, by name.
+    exports: HashMap<String, Vec<usize>>,
     initialized: bool,
     finalized: bool,
 }
@@ -52,11 +55,27 @@ fn protection(flags: u32) -> libc::c_int {
     prot
 }
 
+/// Whether a definition answers a reference to `name` at `version`, by glibc's
+/// rules: an unversioned definition answers any reference; a versioned reference
+/// needs that version; an unversioned reference takes the default (non-hidden)
+/// version.
+pub(crate) fn provides(def: &DynamicSymbol, name: &str, version: Option<&str>) -> bool {
+    if !def.defined || def.binding == SymbolBinding::Local || def.name != name {
+        return false;
+    }
+    if matches!(def.kind, SymbolKind::Section | SymbolKind::File) {
+        return false;
+    }
+    match (&def.version, version) {
+        (None, _) => true,
+        (Some(d), Some(v)) => d.name == v,
+        (Some(d), None) => !d.hidden,
+    }
+}
+
 impl Image {
-    /// Maps the object at `path`, applies its relocations, and protects its
-    /// segments. `resolve` answers each import the object does not define itself;
-    /// it returns the import's address, or `None`. Initializers have not run yet.
-    pub fn load(path: &Path, resolve: &mut dyn FnMut(Import<'_>) -> Option<u64>) -> Result<Self> {
+    /// Maps the object at `path` and its segments, all writable for relocation.
+    pub(crate) fn map(path: &Path) -> Result<Self> {
         let data = fs::read(path)?;
         let file = File::open(path)?;
         let elf = cs2metal_elf::parse(&data)?;
@@ -71,12 +90,7 @@ impl Image {
         }
 
         let page = page_size();
-        let loads: Vec<Segment> = elf
-            .segments
-            .iter()
-            .filter(|s| s.kind == PT_LOAD)
-            .cloned()
-            .collect();
+        let loads = Self::loads(&elf);
         for s in &loads {
             if s.vaddr % page != s.offset % page {
                 return Err(Error::Misaligned {
@@ -98,18 +112,13 @@ impl Image {
         let region = Region::reserve(hi - lo)?;
         let bias = region.address().wrapping_sub(lo);
 
-        // Map every segment writable first; protections are set after relocation.
         for s in &loads {
             let start = round_down(s.vaddr, page);
             let file_end = s.vaddr + s.file_size;
             let mapped_end = round_up(file_end, page);
             if s.file_size > 0 {
-                region.map_file(
-                    start - lo,
-                    mapped_end - start,
-                    file.as_fd(),
-                    round_down(s.offset, page),
-                )?;
+                let file_offset = round_down(s.offset, page);
+                region.map_file(start - lo, mapped_end - start, file.as_fd(), file_offset)?;
             }
             let memory_end = s.vaddr + s.memory_size;
             if s.memory_size > s.file_size {
@@ -126,34 +135,75 @@ impl Image {
             }
         }
 
-        let image = Self {
+        let mut exports: HashMap<String, Vec<usize>> = HashMap::new();
+        for (i, s) in elf.symbols.iter().enumerate() {
+            if s.defined && s.binding != SymbolBinding::Local && !s.name.is_empty() {
+                exports.entry(s.name.clone()).or_default().push(i);
+            }
+        }
+        Ok(Self {
             region,
             bias,
             lo,
             elf,
+            exports,
             initialized: false,
             finalized: false,
-        };
-        image.relocate(resolve)?;
+        })
+    }
 
-        for s in &loads {
+    fn loads(elf: &Elf) -> Vec<Segment> {
+        elf.segments
+            .iter()
+            .filter(|s| s.kind == PT_LOAD)
+            .cloned()
+            .collect()
+    }
+
+    /// Sets the final segment protections and makes RELRO read-only.
+    pub(crate) fn protect(&self) -> Result<()> {
+        let page = page_size();
+        for s in Self::loads(&self.elf) {
             let start = round_down(s.vaddr, page);
             let end = round_up(s.vaddr + s.memory_size, page);
-            image
-                .region
-                .protect(start - lo, end - start, protection(s.flags))?;
+            self.region
+                .protect(start - self.lo, end - start, protection(s.flags))?;
         }
-        if let Some(relro) = image.elf.segments.iter().find(|s| s.kind == PT_GNU_RELRO) {
+        if let Some(relro) = self.elf.segments.iter().find(|s| s.kind == PT_GNU_RELRO) {
             // glibc rounds the end of RELRO down: the page holding its tail may
             // also hold writable data.
             let start = round_down(relro.vaddr, page);
             let end = round_down(relro.vaddr + relro.memory_size, page);
             if end > start {
-                image
-                    .region
-                    .protect(start - lo, end - start, libc::PROT_READ)?;
+                self.region
+                    .protect(start - self.lo, end - start, libc::PROT_READ)?;
             }
         }
+        Ok(())
+    }
+
+    /// Maps the object at `path` on its own, relocates it, and protects its
+    /// segments. A symbol it defines binds to itself; `resolve` answers each import
+    /// it does not define, with an address or `None`. Initializers have not run.
+    /// [`Namespace`](crate::Namespace) loads modules together, with a global scope.
+    pub fn load(path: &Path, resolve: &mut dyn FnMut(Import<'_>) -> Option<u64>) -> Result<Self> {
+        let image = Self::map(path)?;
+        image.relocate(&mut |symbol| {
+            if symbol.defined {
+                return image.definition(symbol);
+            }
+            let import = Import {
+                name: &symbol.name,
+                version: symbol.version.as_ref().map(|v| v.name.as_str()),
+                weak: symbol.binding == SymbolBinding::Weak,
+            };
+            match resolve(import) {
+                Some(address) => Ok(address),
+                None if import.weak => Ok(0),
+                None => Err(Error::Unresolved(symbol.name.clone())),
+            }
+        })?;
+        image.protect()?;
         Ok(image)
     }
 
@@ -166,12 +216,43 @@ impl Image {
         &self.elf
     }
 
-    /// The address of a symbol the module defines and exports.
+    /// The name other modules need this one by: its `DT_SONAME`, if it has one.
+    pub fn soname(&self) -> Option<&str> {
+        self.elf.soname.as_deref()
+    }
+
+    /// The definition this module gives for a reference, if any.
+    pub(crate) fn find(&self, name: &str, version: Option<&str>) -> Option<&DynamicSymbol> {
+        self.exports
+            .get(name)?
+            .iter()
+            .map(|&i| &self.elf.symbols[i])
+            .find(|s| provides(s, name, version))
+    }
+
+    /// The run-time address of one of this module's definitions. An IFUNC is
+    /// resolved by calling its resolver.
+    pub(crate) fn definition(&self, symbol: &DynamicSymbol) -> Result<u64> {
+        let address = self.address(symbol.value);
+        if symbol.kind == SymbolKind::GnuIfunc {
+            // SAFETY: the resolver is relocated code of this module; modules are
+            // relocated dependencies first, so what it calls is in place.
+            return unsafe { call_resolver(address) };
+        }
+        Ok(address)
+    }
+
+    /// The address of a symbol the module defines and exports, at its default
+    /// version.
     pub fn symbol(&self, name: &str) -> Option<u64> {
-        self.elf
-            .exports()
-            .find(|s| s.name == name && s.kind != SymbolKind::Tls)
-            .map(|s| self.address(s.value))
+        self.find(name, None)
+            .filter(|s| s.kind != SymbolKind::Tls)
+            .and_then(|s| self.definition(s).ok())
+    }
+
+    /// Reads the 64-bit value at an object virtual address inside a loaded segment.
+    pub fn read_u64(&self, vaddr: u64) -> Result<u64> {
+        self.region.read_u64(self.offset(vaddr)?)
     }
 
     /// The offset in the region of an object virtual address, checked to lie in a
@@ -188,34 +269,13 @@ impl Image {
         Ok(vaddr - self.lo)
     }
 
-    fn bind(
+    /// Applies every relocation. `bind` gives the address a symbol reference binds
+    /// to; it is called for the references this module makes, including to symbols
+    /// it defines itself, which another module may interpose.
+    pub(crate) fn relocate(
         &self,
-        symbol: &DynamicSymbol,
-        resolve: &mut dyn FnMut(Import<'_>) -> Option<u64>,
-    ) -> Result<u64> {
-        if symbol.defined {
-            let address = self.address(symbol.value);
-            if symbol.kind == SymbolKind::GnuIfunc {
-                // SAFETY: the resolver is the module's own code, already relocated
-                // up to this point, called as glibc calls it.
-                return unsafe { call_resolver(address) };
-            }
-            return Ok(address);
-        }
-        let weak = symbol.binding == SymbolBinding::Weak;
-        let import = Import {
-            name: &symbol.name,
-            version: symbol.version.as_ref().map(|v| v.name.as_str()),
-            weak,
-        };
-        match resolve(import) {
-            Some(address) => Ok(address),
-            None if weak => Ok(0),
-            None => Err(Error::Unresolved(symbol.name.clone())),
-        }
-    }
-
-    fn relocate(&self, resolve: &mut dyn FnMut(Import<'_>) -> Option<u64>) -> Result<()> {
+        bind: &mut dyn FnMut(&DynamicSymbol) -> Result<u64>,
+    ) -> Result<()> {
         // IRELATIVE entries run guest resolvers, which may read other relocated
         // data, so they go last, as in glibc.
         let (deferred, first): (Vec<&Relocation>, Vec<&Relocation>) = self
@@ -230,8 +290,8 @@ impl Image {
                 R_X86_64_NONE => continue,
                 R_X86_64_RELATIVE => self.address(addend),
                 R_X86_64_IRELATIVE => {
-                    // SAFETY: as in bind: the module's own resolver, after every other
-                    // relocation is in place.
+                    // SAFETY: the module's own resolver, after every other
+                    // relocation of the module is in place.
                     unsafe { call_resolver(self.address(addend))? }
                 }
                 R_X86_64_GLOB_DAT | R_X86_64_JUMP_SLOT | R_X86_64_64 => {
@@ -239,7 +299,11 @@ impl Image {
                         .elf
                         .relocation_symbol(r)
                         .ok_or(Error::RelocationOutOfBounds { offset: r.offset })?;
-                    let target = self.bind(symbol, resolve)?;
+                    let target = if symbol.binding == SymbolBinding::Local {
+                        self.definition(symbol)?
+                    } else {
+                        bind(symbol)?
+                    };
                     if r.kind == R_X86_64_64 {
                         target.wrapping_add(addend)
                     } else {
@@ -257,9 +321,7 @@ impl Image {
         let Some(at) = at else {
             return Ok(Vec::new());
         };
-        (0..entries)
-            .map(|i| self.region.read_u64(self.offset(at + 8 * i)?))
-            .collect()
+        (0..entries).map(|i| self.read_u64(at + 8 * i)).collect()
     }
 
     /// Runs `DT_INIT`, then `DT_INIT_ARRAY` in order, once.

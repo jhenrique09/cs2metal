@@ -1,0 +1,7 @@
+versioned=20
+shared=2000
+overridable=200
+base_calls_shared=2000
+base_value=1
+absent_is_null=1
+exit: 0

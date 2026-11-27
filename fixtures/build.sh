@@ -42,4 +42,12 @@ $cc $common $pie $link "$src/dlopen_main.c" -ldl $origin -o dlopen
 # ifunc: a resolver chooses the implementation at load time.
 $cc $common $pie $link "$src/ifunc.c" -o ifunc
 
+# scope: symbol versions, a weak definition, interposition, DT_NEEDED via $ORIGIN.
+$cc $common $link -shared "$src/scope_base.c" -Wl,--version-script="$src/scope_base.map" \
+    -Wl,-soname,libscope_base.so -o libscope_base.so
+$cc $common $link -shared "$src/scope_over.c" -Wl,-soname,libscope_over.so -o libscope_over.so
+$cc $common $link -shared "$src/scope_user.c" -L. -Wl,--no-as-needed -lscope_over -lscope_base \
+    -Wl,--as-needed $origin -Wl,-soname,libscope_user.so -o libscope_user.so
+$cc $common $pie $link "$src/scope_main.c" -L. -lscope_user $origin -o scope
+
 sha256sum $(ls | sort) > SHA256SUMS

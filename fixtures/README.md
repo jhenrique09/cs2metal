@@ -13,6 +13,7 @@ SDK, gcc 10.3, and glibc 2.31.
 | `cxx` | `cxx`, `libcxx_lib.so` | C++ exceptions thrown in a library and caught in the executable, iostream, static constructors, the runtime's `libstdc++` |
 | `dlopen` | `dlopen`, `libdlopen_plugin.so` | `dlopen`, `dlsym`, `dlerror`, `dlclose`, a constructor, `$ORIGIN` |
 | `ifunc` | `ifunc` | an IFUNC resolver in the executable, and glibc's own IFUNC string functions |
+| `scope` | `scope`, `libscope_user.so`, `libscope_over.so`, `libscope_base.so` | `DT_NEEDED` through `$ORIGIN`, symbol versions (`versioned@SCOPE_1`, `versioned@@SCOPE_2`), a weak definition overridden, a call interposed inside its own module; the libraries need no C library |
 
 ## Build and check
 

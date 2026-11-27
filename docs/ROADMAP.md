@@ -390,6 +390,9 @@ Slices, each with a test that runs guest code under Rosetta 2 in `tools/check.sh
    **Done, 27 November 2026:** the `dlopen` fixture's plugin runs its constructor
    and answers `plugin_answer(20) = 41` inside the x86-64 host.
 2. A symbol scope across modules: versions, weak symbols, interposition, `$ORIGIN`.
+   **Done, 27 November 2026:** the `scope` fixture's three libraries load breadth
+   first through `$ORIGIN` and answer exactly as on Linux, including a weak
+   definition overridden and a call interposed inside its own module.
 3. TLS and the GS bridge: per-thread blocks, `__tls_get_addr`, T-001 behind a flag,
    host and neutral thunks, with the `tls` and `stack_guard` fixtures.
 4. The C library the `hello` fixture needs, which meets the C3 bake-off.

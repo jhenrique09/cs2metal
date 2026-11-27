@@ -1,0 +1,7 @@
+SCOPE_1 {
+    global: base_value; versioned; overridable; shared_name; base_calls_shared;
+    local: *;
+};
+SCOPE_2 {
+    global: versioned;
+} SCOPE_1;

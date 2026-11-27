@@ -2,9 +2,11 @@
 //! its initializers, the way glibc's `ld.so` would, for the subset the CS2 build
 //! needs.
 //!
-//! This is the first slice of roadmap step C2: one module, its own symbols, and an
-//! import resolver supplied by the caller. Symbol scopes across modules, TLS, the
-//! GS bridge, and transform T-001 come next.
+//! [`Image`] is one module; [`Namespace`] loads modules with their dependencies into
+//! one global scope, with glibc's lookup rules: symbol versions, first definition
+//! in load order wins (so a later module's definitions can be interposed), weak
+//! references may stay unresolved. Imports no module defines go to a host
+//! resolver. TLS, the GS bridge, and transform T-001 come next.
 //!
 //! The file is opened read-only and mapped privately: writes made while relocating
 //! land in copy-on-write pages and never reach the disk. Guest code only runs in an
@@ -13,6 +15,8 @@
 mod error;
 mod image;
 mod memory;
+mod namespace;
 
 pub use error::{Error, Result};
 pub use image::{Image, Import};
+pub use namespace::{Module, Namespace};

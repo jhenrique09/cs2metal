@@ -32,4 +32,5 @@ run stack_guard ./stack_guard
 run cxx ./cxx
 run dlopen ./dlopen
 run ifunc ./ifunc
+run scope ./scope
 exit $status
