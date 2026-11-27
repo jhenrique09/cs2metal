@@ -37,10 +37,13 @@ for src in /spec/shims/*.c; do
     map="${src%.c}.map"
     versions=()
     [[ -f "$map" ]] && versions=(-Wl,--version-script="$map")
+    # A .libs beside the source lists the guest libraries the shim links.
+    libs=()
+    [[ -f "${src%.c}.libs" ]] && read -r -a libs < "${src%.c}.libs"
     gcc -O2 -fPIC -shared -nostdlib -fno-stack-protector -g0 -fno-ident \
         -ffile-prefix-map=/spec=. -I/spec/generated -Wall -Werror \
         -Wl,--hash-style=gnu -Wl,-z,now -Wl,--build-id=sha1 -Wl,-soname,"$name" \
-        "${versions[@]}" "$src" -o "/w/out/shims/$name"
+        "${versions[@]}" "$src" "${libs[@]}" -o "/w/out/shims/$name"
 done
 echo "glibc: shims built: $(ls /w/out/shims | tr '\n' ' ')"
 

@@ -30,8 +30,40 @@ __attribute__((visibility("hidden"))) unsigned long cs2metal_sdl_table[COUNT];
 
 __asm__(".text\n" SDL_SHIM_NAMES(STUB));
 
-/* cs2metal's private system call: fill `table` for `names`. */
+#include <pthread.h>
+
+/* cs2metal's private system calls: fill `table` for `names`; wait for the next
+   guest callback to run. */
 #define CS2METAL_BIND_SDL 0x43530002L
+#define CS2METAL_SDL_NEXT_CALLBACK 0x43530004L
+
+static long host_call(long number, unsigned long a0) {
+    long result;
+    register unsigned long r0 __asm__("rdi") = a0;
+    __asm__ volatile(
+        "lea -128(%%rsp), %%rsp\n\t"
+        "call *%%fs:0x20\n\t"
+        "lea 128(%%rsp), %%rsp"
+        : "=a"(result)
+        : "0"(number), "r"(r0)
+        : "rdx", "rsi", "rcx", "r11", "memory", "cc");
+    return result;
+}
+
+/* A guest thread for the callbacks host SDL would make on its own threads, such
+   as an audio stream's: the host hands it each call to make, which it makes in
+   the guest, and asks for the next. */
+static void *callbacks(void *unused) {
+    (void)unused;
+    for (;;) {
+        unsigned long call[5];
+        if (host_call(CS2METAL_SDL_NEXT_CALLBACK, (unsigned long)call) != 0)
+            continue;
+        ((void (*)(unsigned long, unsigned long, unsigned long, unsigned long))call[0])(
+            call[1], call[2], call[3], call[4]);
+    }
+    return 0;
+}
 
 __attribute__((constructor)) static void bind(void) {
     long result;
@@ -46,4 +78,7 @@ __attribute__((constructor)) static void bind(void) {
         : "0"(CS2METAL_BIND_SDL), "r"(table), "r"(list), "r"(count)
         : "rcx", "r11", "memory", "cc");
     (void)result;
+    pthread_t thread;
+    if (pthread_create(&thread, 0, callbacks, 0) == 0)
+        pthread_detach(thread);
 }

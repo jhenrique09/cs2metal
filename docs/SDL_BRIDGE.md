@@ -48,7 +48,7 @@ names the call.
 | `SDL_SetLogOutputFunction` | The game's log function is guest code. Host SDL calls a host wrapper, which runs the game's function through a guest thunk on a guest thread, and writes to standard error on any other thread |
 | `SDL_AddEventWatch`, `SDL_RemoveEventWatch` | The watch is guest code, called the same way; events pushed on host-only threads skip it |
 | `SDL_SetClipboardData` | Its callbacks are guest code, called on the guest's main thread |
-| `SDL_OpenAudioDeviceStream` | A stream callback would run on host SDL's audio thread, which runs no guest thread. The game feeds its streams with `SDL_PutAudioStreamData`, so a callback is not bridged yet and is named if one comes |
+| `SDL_OpenAudioDeviceStream`, `SDL_DestroyAudioStream` | A stream callback would run on host SDL's audio thread, which runs no guest thread, and running it on another thread while SDL holds the stream's lock would deadlock. The stream opens without it; a guest thread the shim starts asks the host for each call to make, and the host hands it one whenever a playback stream's queue falls below 40 ms, or a recording stream has data, as SDL's device thread would |
 | `SDL_IOFromFile` | A Linux path: it goes through the installation overlay |
 | `SDL_Vulkan_LoadLibrary` | The game would name its Linux loader. Host SDL loads the macOS Vulkan loader, by default the newest Vulkan SDK's, which finds MoltenVK through the SDK's driver manifest unless `VK_DRIVER_FILES` is set |
 
@@ -66,8 +66,7 @@ and pumps its events.
 
 ## What remains
 
-- Callbacks on host-only threads (an audio stream callback, SDL timers): they need a
-  guest thread to run on, such as a guest callback thread that runs them on
-  request.
+- Other callbacks on host-only threads, such as SDL timers, could use the same guest
+  callback thread.
 - `SDL_Vulkan_CreateSurface` takes a `VkInstance`, which must be the host's, so the
   game's Vulkan calls must reach the macOS loader too. That is step F2.

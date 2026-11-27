@@ -232,10 +232,35 @@ extern "C" fn set_clipboard_data(
 
 // --- Audio -------------------------------------------------------------------------
 
-/// `SDL_OpenAudioDeviceStream(device, spec, callback, userdata)`. Host SDL calls
-/// a stream's callback on its own audio thread, which runs no guest thread; the
-/// game feeds its streams with `SDL_PutAudioStreamData` instead, so a callback is
-/// not bridged yet, and named if one comes.
+/// The private system call the shim's callback thread makes for its next call.
+pub(crate) const NEXT_CALLBACK: u64 = 0x4353_0004;
+
+/// A stream opened with a guest callback, which host SDL would call on its own
+/// audio thread. That thread runs no guest thread, and running the callback on
+/// another while SDL holds the stream's lock would deadlock, so the stream is
+/// opened without it, and the shim's callback thread makes the calls SDL's
+/// device thread would: whenever the queue falls below a target.
+struct Pump {
+    stream: u64,
+    callback: u64,
+    userdata: u64,
+    /// Bytes per second of the stream's input side, and per frame.
+    rate: u64,
+    frame: u64,
+    playback: bool,
+}
+
+static PUMPS: Mutex<Vec<Pump>> = Mutex::new(Vec::new());
+static PUMPS_CHANGED: std::sync::Condvar = std::sync::Condvar::new();
+
+/// How far ahead of the device a playback stream's queue is kept.
+const AHEAD_MS: u64 = 40;
+/// How often the queues are looked at.
+const TICK: std::time::Duration = std::time::Duration::from_millis(5);
+
+const DEFAULT_RECORDING_DEVICE: u32 = 0xffff_fffe;
+
+/// `SDL_OpenAudioDeviceStream(device, spec, callback, userdata)`.
 extern "C" fn open_audio_device_stream(
     device: u32,
     spec: u64,
@@ -246,12 +271,92 @@ extern "C" fn open_audio_device_stream(
     if f == 0 {
         return 0;
     }
-    if callback != 0 {
-        eprintln!("cs2metal: SDL audio stream callback not bridged; the stream opens without it");
-    }
     // SAFETY: the host library's SDL_OpenAudioDeviceStream.
     let f: extern "C" fn(u32, u64, u64, u64) -> u64 = unsafe { std::mem::transmute(f) };
-    f(device, spec, 0, if callback != 0 { 0 } else { userdata })
+    let stream = f(device, spec, 0, 0);
+    if stream == 0 || callback == 0 || spec == 0 {
+        return stream;
+    }
+    // SDL_AudioSpec: format (its low byte the sample's bits), channels, rate.
+    // SAFETY: the guest passes an SDL_AudioSpec.
+    let [format, channels, freq] = unsafe { std::ptr::read_unaligned(spec as *const [u32; 3]) };
+    let frame = u64::from((format & 0xff) / 8) * u64::from(channels.max(1));
+    if let Ok(mut pumps) = PUMPS.lock() {
+        pumps.push(Pump {
+            stream,
+            callback,
+            userdata,
+            rate: frame * u64::from(freq),
+            frame: frame.max(1),
+            playback: device != DEFAULT_RECORDING_DEVICE,
+        });
+        PUMPS_CHANGED.notify_all();
+    }
+    stream
+}
+
+/// `SDL_DestroyAudioStream(stream)`: its pump goes first, under the lock the
+/// callback thread takes.
+extern "C" fn destroy_audio_stream(stream: u64) {
+    let f = real("SDL_DestroyAudioStream");
+    let Ok(mut pumps) = PUMPS.lock() else {
+        return;
+    };
+    pumps.retain(|p| p.stream != stream);
+    if f != 0 {
+        // SAFETY: the host library's SDL_DestroyAudioStream.
+        let f: extern "C" fn(u64) = unsafe { std::mem::transmute(f) };
+        f(stream);
+    }
+}
+
+/// The next stream callback due, as (callback, userdata, stream, amount).
+fn due(pumps: &[Pump]) -> Option<[u64; 5]> {
+    let queued = real("SDL_GetAudioStreamQueued");
+    let available = real("SDL_GetAudioStreamAvailable");
+    if queued == 0 || available == 0 {
+        return None;
+    }
+    // SAFETY: the host library's functions of these names.
+    let (queued, available): (extern "C" fn(u64) -> i32, extern "C" fn(u64) -> i32) = unsafe {
+        (
+            std::mem::transmute::<usize, extern "C" fn(u64) -> i32>(queued),
+            std::mem::transmute::<usize, extern "C" fn(u64) -> i32>(available),
+        )
+    };
+    pumps.iter().find_map(|p| {
+        let amount = if p.playback {
+            let target = p.rate * AHEAD_MS / 1000;
+            let have = u64::try_from(queued(p.stream)).unwrap_or(0);
+            target.saturating_sub(have) / p.frame * p.frame
+        } else {
+            u64::try_from(available(p.stream)).unwrap_or(0)
+        };
+        (amount > 0).then_some([p.callback, p.userdata, p.stream, amount, amount])
+    })
+}
+
+/// The shim's callback thread asks for its next call: it waits until a stream
+/// needs data and writes the call, a guest function and four arguments, to
+/// `out`.
+pub(crate) fn next_callback(out: u64) -> i64 {
+    if out == 0 {
+        return crate::translate::EFAULT;
+    }
+    let Ok(mut pumps) = PUMPS.lock() else {
+        return crate::translate::EINVAL;
+    };
+    loop {
+        if let Some(call) = due(&pumps) {
+            // SAFETY: the shim passes room for five words.
+            unsafe { std::ptr::write_unaligned(out as *mut [u64; 5], call) };
+            return 0;
+        }
+        pumps = match PUMPS_CHANGED.wait_timeout(pumps, TICK) {
+            Ok((p, _)) => p,
+            Err(_) => return crate::translate::EINVAL,
+        };
+    }
 }
 
 // --- Paths -------------------------------------------------------------------------
@@ -335,6 +440,7 @@ fn wrapper(name: &[u8]) -> Option<u64> {
         b"SDL_RemoveEventWatch" => remove_event_watch as *const (),
         b"SDL_SetClipboardData" => set_clipboard_data as *const (),
         b"SDL_OpenAudioDeviceStream" => open_audio_device_stream as *const (),
+        b"SDL_DestroyAudioStream" => destroy_audio_stream as *const (),
         b"SDL_IOFromFile" => io_from_file as *const (),
         b"SDL_Vulkan_LoadLibrary" => vulkan_load_library as *const (),
         _ => return None,
@@ -418,6 +524,51 @@ mod tests {
         assert!(at("/x/libSDL2-2.0.so.0").is_none());
     }
 
+    #[cfg(target_arch = "x86_64")]
+    extern "C" fn queued(_stream: u64) -> i32 {
+        1000
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    extern "C" fn available(_stream: u64) -> i32 {
+        0
+    }
+
+    /// A 48 kHz stereo float stream holding 1,000 bytes is due enough for 40 ms
+    /// ahead, in whole frames.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn a_playback_stream_is_topped_up_in_whole_frames() {
+        let mut real = HashMap::new();
+        real.insert(
+            "SDL_GetAudioStreamQueued".to_owned(),
+            queued as *const () as usize,
+        );
+        real.insert(
+            "SDL_GetAudioStreamAvailable".to_owned(),
+            available as *const () as usize,
+        );
+        if let Ok(mut state) = STATE.lock() {
+            *state = Some(State {
+                bridge: Bridge::new().expect("bridge"),
+                real,
+                watches: HashMap::new(),
+            });
+        }
+        let pumps = [Pump {
+            stream: 7,
+            callback: 0x1000,
+            userdata: 9,
+            rate: 8 * 48_000,
+            frame: 8,
+            playback: true,
+        }];
+        let call = due(&pumps).expect("due");
+        let target = 8 * 48_000 * AHEAD_MS / 1000;
+        assert_eq!(call, [0x1000, 9, 7, target - 1000, target - 1000]);
+        assert_eq!((target - 1000) % 8, 0);
+    }
+
     #[test]
     fn every_wrapped_function_has_a_wrapper() {
         for name in [
@@ -426,6 +577,7 @@ mod tests {
             "SDL_RemoveEventWatch",
             "SDL_SetClipboardData",
             "SDL_OpenAudioDeviceStream",
+            "SDL_DestroyAudioStream",
             "SDL_IOFromFile",
             "SDL_Vulkan_LoadLibrary",
         ] {
