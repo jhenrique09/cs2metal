@@ -60,6 +60,94 @@ enum Command {
         #[command(subcommand)]
         action: TlsAction,
     },
+    /// The Vulkan names the renderer module carries, and what each driver offers.
+    Vulkan {
+        #[command(subcommand)]
+        action: VulkanAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+enum VulkanAction {
+    /// List the Vulkan extension and command names in the renderer module. `path` is
+    /// the module, or an installation, where the Linux renderer module is used.
+    Scan {
+        path: PathBuf,
+        /// Write the names as JSON to this file.
+        #[arg(long)]
+        json: Option<PathBuf>,
+    },
+    /// Cross the renderer's names with `vulkaninfo --json` reports, one per driver.
+    /// Each report is labelled by its file name without a `vulkaninfo-` prefix.
+    Compare {
+        path: PathBuf,
+        #[arg(required = true)]
+        reports: Vec<PathBuf>,
+        /// Write the Markdown report to this file instead of standard output.
+        #[arg(long)]
+        markdown: Option<PathBuf>,
+    },
+}
+
+/// The renderer module inside an installation.
+const RENDERER_MODULE: &str = "game/bin/linuxsteamrt64/librendersystemvulkan.so";
+
+fn renderer_names(path: &Path) -> Result<(PathBuf, cs2metal_vulkan::Names), String> {
+    let module = if path.is_dir() {
+        path.join(RENDERER_MODULE)
+    } else {
+        path.to_owned()
+    };
+    let bytes = fs::read(&module).map_err(|e| format!("{}: {e}", module.display()))?;
+    Ok((module, cs2metal_vulkan::scan_names(&bytes)))
+}
+
+fn vulkan(action: VulkanAction) -> Result<ExitCode, String> {
+    match action {
+        VulkanAction::Scan { path, json } => {
+            let (_, names) = renderer_names(&path)?;
+            if let Some(out) = json {
+                let text = serde_json::to_string_pretty(&names).map_err(|e| e.to_string())?;
+                write_report(&out, &text)?;
+            }
+            for e in &names.extensions {
+                println!("{e}");
+            }
+            eprintln!(
+                "cs2metal: {} extension names, {} command names",
+                names.extensions.len(),
+                names.commands.len()
+            );
+        }
+        VulkanAction::Compare {
+            path,
+            reports,
+            markdown,
+        } => {
+            let (module, names) = renderer_names(&path)?;
+            let mut drivers = Vec::new();
+            for report in &reports {
+                let text =
+                    fs::read_to_string(report).map_err(|e| format!("{}: {e}", report.display()))?;
+                let stem = report
+                    .file_stem()
+                    .map_or_else(String::new, |s| s.to_string_lossy().into_owned());
+                let label = stem.strip_prefix("vulkaninfo-").unwrap_or(&stem);
+                let driver = cs2metal_vulkan::DriverReport::from_vulkaninfo(label, &text)
+                    .map_err(|e| format!("{}: {e}", report.display()))?;
+                drivers.push(driver);
+            }
+            let name = module
+                .file_name()
+                .map_or_else(String::new, |n| n.to_string_lossy().into_owned());
+            let report = cs2metal_vulkan::markdown(&name, &names, &drivers);
+            match markdown {
+                Some(out) => write_report(&out, &report)?,
+                None => print!("{report}"),
+            }
+        }
+    }
+    Ok(ExitCode::SUCCESS)
 }
 
 #[derive(Debug, Subcommand)]
@@ -149,6 +237,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             Ok(ExitCode::SUCCESS)
         }
         Command::Baseline { action } => baseline(action),
+        Command::Vulkan { action } => vulkan(action),
         Command::Tls {
             action:
                 TlsAction::Scan {

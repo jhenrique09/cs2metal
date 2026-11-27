@@ -182,3 +182,46 @@ fn tls_scan_reports_and_signals_an_unclean_module() {
     let text = fs::read_to_string(report).expect("report");
     assert!(text.contains("| Modules whose rewrite is clean | 1 |"));
 }
+
+#[test]
+fn vulkan_compare_crosses_the_renderer_with_driver_reports() {
+    let dir = tempfile::tempdir().expect("temp dir");
+    let bin = dir.path().join("game/bin/linuxsteamrt64");
+    fs::create_dir_all(&bin).expect("mkdir");
+    fs::write(
+        bin.join("librendersystemvulkan.so"),
+        b"\x7fELF\0VK_KHR_swapchain\0VK_EXT_mesh_shader\0vkCreateDevice\0",
+    )
+    .expect("write");
+    let report = dir.path().join("vulkaninfo-TestVK-x86_64.json");
+    fs::write(
+        &report,
+        r#"{"capabilities":{"device":{"extensions":{"VK_KHR_swapchain":70},
+            "features":{},"properties":{"VkPhysicalDeviceProperties":{"deviceName":"GPU"}}}}}"#,
+    )
+    .expect("write");
+
+    let out = cs2metal()
+        .args(["vulkan", "compare"])
+        .arg(dir.path())
+        .arg(&report)
+        .output()
+        .expect("run");
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8_lossy(&out.stdout);
+    assert!(text.contains("| | TestVK-x86_64 |"));
+    assert!(text.contains("| `VK_EXT_mesh_shader` | device | no |"));
+    assert!(text.contains("| `VK_KHR_swapchain` | device | yes |"));
+
+    let missing = cs2metal()
+        .args(["vulkan", "scan"])
+        .arg(dir.path().join("nowhere"))
+        .output()
+        .expect("run");
+    assert_eq!(missing.status.code(), Some(1));
+}
