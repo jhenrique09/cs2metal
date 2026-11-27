@@ -114,6 +114,7 @@ fn wrapper(name: &[u8]) -> Option<u64> {
         b"vkCreateDebugUtilsMessengerEXT" => create_debug_utils_messenger as *const (),
         b"vkCreateDebugReportCallbackEXT" => create_debug_report_callback as *const (),
         b"vkEnumerateDeviceExtensionProperties" => enumerate_device_extensions as *const (),
+        b"vkCmdBindDescriptorSets" => bind_descriptor_sets as *const (),
         b"vkCreateSwapchainKHR" if tracing() => create_swapchain as *const (),
         b"vkAcquireNextImageKHR" if tracing() => acquire_next_image as *const (),
         b"vkQueuePresentKHR" if tracing() => queue_present as *const (),
@@ -131,6 +132,9 @@ fn guest_function(name: &CStr, host: u64) -> u64 {
     );
     if host == 0 && !always {
         return 0;
+    }
+    if name.to_bytes() == b"vkCmdBindDescriptorSets" {
+        BIND_DESCRIPTOR_SETS.store(host, std::sync::atomic::Ordering::Release);
     }
     if tracing() && host != 0 {
         if let Some(w) = traced_wrapper(name.to_bytes(), host) {
@@ -448,6 +452,111 @@ extern "C" fn enumerate_device_extensions(
     }
 }
 
+/// The loader's `vkCmdBindDescriptorSets`, recorded when the guest asks for it.
+static BIND_DESCRIPTOR_SETS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+type BindDescriptorSets = extern "C" fn(u64, u32, u64, u32, u32, *const u64, u32, *const u32);
+
+/// The runs of consecutive sets that are not null, as (first index, length).
+fn bound_runs(sets: &[u64]) -> Vec<(usize, usize)> {
+    let mut runs: Vec<(usize, usize)> = Vec::new();
+    for (i, &set) in sets.iter().enumerate() {
+        if set == 0 {
+            continue;
+        }
+        match runs.last_mut() {
+            Some((start, len)) if *start + *len == i => *len += 1,
+            _ => runs.push((i, 1)),
+        }
+    }
+    runs
+}
+
+/// `vkCmdBindDescriptorSets(commandBuffer, bindPoint, layout, firstSet, count,
+/// sets, dynamicOffsetCount, dynamicOffsets)`: null sets are left out.
+///
+/// The renderer binds ranges of sets with `VK_NULL_HANDLE` among them. The
+/// Linux drivers skip those; MoltenVK reads through the null pointer when it
+/// encodes the command, and the thread that submits the frame never returns.
+/// So each run of sets that are not null is bound by a call of its own, which
+/// leaves the numbers in between as they were, as a skipped set does.
+extern "C" fn bind_descriptor_sets(
+    command_buffer: u64,
+    bind_point: u32,
+    layout: u64,
+    first: u32,
+    count: u32,
+    sets: *const u64,
+    dynamic_count: u32,
+    dynamic: *const u32,
+) {
+    let real = BIND_DESCRIPTOR_SETS.load(std::sync::atomic::Ordering::Acquire);
+    if real == 0 {
+        return;
+    }
+    // SAFETY: the loader's vkCmdBindDescriptorSets.
+    let real = unsafe { std::mem::transmute::<usize, BindDescriptorSets>(real as usize) };
+    let handles: &[u64] = if sets.is_null() || count == 0 {
+        &[]
+    } else {
+        // SAFETY: the guest passes `count` set handles.
+        unsafe { std::slice::from_raw_parts(sets, count as usize) }
+    };
+    if !handles.contains(&0) {
+        return real(
+            command_buffer,
+            bind_point,
+            layout,
+            first,
+            count,
+            sets,
+            dynamic_count,
+            dynamic,
+        );
+    }
+    let runs = bound_runs(handles);
+    static NAMED: std::sync::Once = std::sync::Once::new();
+    NAMED.call_once(|| {
+        eprintln!(
+            "cs2metal: vkCmdBindDescriptorSets with null sets ({} of {count} bound, from set \
+             {first}, {dynamic_count} dynamic offsets); the null ones are left out",
+            runs.iter().map(|r| r.1).sum::<usize>()
+        );
+    });
+    // Dynamic offsets go to the sets that have dynamic descriptors, in order,
+    // and a null set has none. Which run takes how many is in the set layouts,
+    // which the bridge does not keep: one run takes them all, several are
+    // named once and the first takes them.
+    if runs.len() > 1 && dynamic_count > 0 {
+        static SPLIT: std::sync::Once = std::sync::Once::new();
+        SPLIT.call_once(|| {
+            eprintln!(
+                "cs2metal: vkCmdBindDescriptorSets: {dynamic_count} dynamic offsets across \
+                 {} runs of sets; given to the first",
+                runs.len()
+            );
+        });
+    }
+    for (i, &(start, len)) in runs.iter().enumerate() {
+        let (offsets, offset_list) = if i == 0 {
+            (dynamic_count, dynamic)
+        } else {
+            (0, std::ptr::null())
+        };
+        real(
+            command_buffer,
+            bind_point,
+            layout,
+            first + start as u32,
+            len as u32,
+            // SAFETY: inside the guest's array of `count` handles.
+            unsafe { sets.add(start) },
+            offsets,
+            offset_list,
+        );
+    }
+}
+
 /// The loader's device function `name`, for the traced wrappers.
 fn device_function(device: u64, name: &CStr) -> u64 {
     let gdpa = real(|s| s.get_device_proc_addr);
@@ -719,6 +828,14 @@ pub(crate) fn bind(table: u64, names: u64, count: u64) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn null_descriptor_sets_split_a_binding_into_runs() {
+        assert_eq!(bound_runs(&[1, 2, 3]), [(0, 3)]);
+        assert_eq!(bound_runs(&[0, 2, 3, 0, 5, 0]), [(1, 2), (4, 1)]);
+        assert_eq!(bound_runs(&[0, 0]), []);
+        assert_eq!(bound_runs(&[]), []);
+    }
 
     #[test]
     fn the_shim_answers_for_the_loader_names() {

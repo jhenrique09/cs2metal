@@ -37,6 +37,7 @@ not be initialized, which the first client boot showed.
 | `vkCreateDevice` | Enables `VK_KHR_portability_subset`, which the specification requires on a device that offers it. Names requested extensions the device lacks |
 | `vkCreateDebugUtilsMessengerEXT`, `vkCreateDebugReportCallbackEXT` | The callback is guest code: it is called through the guest thunk |
 | `vkGetInstanceProcAddr`, `vkGetDeviceProcAddr` | Answer with bridged entries, and with themselves |
+| `vkCmdBindDescriptorSets` | The renderer binds ranges of sets with `VK_NULL_HANDLE` among them, which the Linux drivers skip. MoltenVK reads through the null pointer when it encodes the command at submission, and the submitting thread never returns. Each run of sets that are not null is bound by a call of its own. Dynamic offsets go to the first run; a binding that had both several runs and dynamic offsets would need the set layouts to split them, and is named once if it happens |
 
 Allocation callbacks are guest code too. The adjusted calls do not pass them on,
 so the loader uses its own allocator for its objects. The others pass them through
