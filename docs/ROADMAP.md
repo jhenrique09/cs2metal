@@ -604,8 +604,11 @@ guest's, the audio callback was called before the game resumed its device and
 without the stream's lock, and MoltenVK reads through the null descriptor sets the
 renderer binds. The earlier record
 ([what the client's window shows](CLIENT_RENDERING_2026-11-27.md)) read the stall as
-a matter of the window's focus; it was not. Open: the owner hears no sound, and one
-boot aborted on events taken off the main thread.
+a matter of the window's focus; it was not. After that record the owner heard the
+game's music, choppy in places during boots that shared the machine with builds and
+process sampling; client boot 48, run alone, never found the audio queue empty in 85
+seconds. Open: sound under a match's load is not measured, and one boot aborted on
+events taken off the main thread.
 
 ## After the first frame
 

@@ -219,7 +219,9 @@ Both passed on 27 November 2026
 and a practice match the owner started, 2,048 presents in client boot 42's 85
 seconds. The owner's photographs show the menu with its panels and the match with
 map, weapon, and HUD. The logs are `runs/client-36.err` and `runs/client-42.err`.
-The owner hears no sound yet.
+After that record the owner heard the game's music, choppy in places while builds
+and process sampling shared the machine; client boot 48, run alone, never found the
+audio queue empty.
 
 ### M7: Steam
 
