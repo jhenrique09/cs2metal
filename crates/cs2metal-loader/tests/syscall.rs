@@ -1,21 +1,66 @@
 //! The system call entry, with hand-assembled guest code that calls it as the
 //! rebuilt glibc does and checks that every register a `syscall` preserves
-//! survives.
+//! survives, and that the entry leaves a frame record a stack walk can follow
+//! from the handler into the guest.
 #![cfg(target_arch = "x86_64")]
 
 use std::sync::Mutex;
 
 use cs2metal_loader::{Namespace, SyscallFrame, set_syscall_handler};
 
-static SEEN: Mutex<Option<[u64; 7]>> = Mutex::new(None);
+/// What the handler saw.
+#[derive(Clone, Copy)]
+struct Seen {
+    /// The number and the six arguments.
+    call: [u64; 7],
+    /// The guest's rbx, rbp, and return address.
+    saved: [u64; 3],
+    /// Whether a frame-pointer walk from the handler reached the entry's frame
+    /// record.
+    linked: bool,
+}
+
+static SEEN: Mutex<Option<Seen>> = Mutex::new(None);
+
+/// Whether the chain of frame pointers that starts at the caller's `rbp` reaches
+/// `record` within a few frames, going up the stack only.
+fn walk_reaches(record: u64) -> bool {
+    let mut fp: u64;
+    // SAFETY: reads a register.
+    unsafe { core::arch::asm!("mov {}, rbp", out(reg) fp, options(nomem, nostack)) };
+    for _ in 0..16 {
+        if fp == record {
+            return true;
+        }
+        if fp == 0 || fp % 8 != 0 || fp > record {
+            return false;
+        }
+        // SAFETY: fp is a frame record on this thread's stack, below `record`.
+        let next = unsafe { std::ptr::read(fp as *const u64) };
+        if next <= fp {
+            return false;
+        }
+        fp = next;
+    }
+    false
+}
 
 extern "C" fn handler(frame: &mut SyscallFrame) -> u64 {
     let f = *frame;
+    let linked = walk_reaches(std::ptr::from_ref(&frame.saved_rbp) as u64);
     if let Ok(mut seen) = SEEN.lock() {
-        *seen = Some([f.number, f.arg0, f.arg1, f.arg2, f.arg3, f.arg4, f.arg5]);
+        *seen = Some(Seen {
+            call: [f.number, f.arg0, f.arg1, f.arg2, f.arg3, f.arg4, f.arg5],
+            saved: [f.saved_rbx, f.saved_rbp, f.return_address],
+            linked,
+        });
     }
     frame.number * 10
 }
+
+/// What the guest code holds in rbx and rbp across its system call.
+const RBX: u32 = 0x8888;
+const RBP: u32 = 0x7777;
 
 const ARGS: [u64; 6] = [0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666];
 
@@ -38,8 +83,13 @@ const CMP: [[u8; 3]; 6] = [
     [0x49, 0x81, 0xf9],
 ];
 
-fn guest_code() -> Vec<u8> {
-    let mut c = Vec::new();
+/// The guest code, and the offset of the instruction after its system call.
+fn guest_code() -> (Vec<u8>, usize) {
+    let mut c = vec![0x55, 0x53]; // push rbp; push rbx
+    c.extend([0x48, 0xc7, 0xc5]); // mov rbp, imm32
+    c.extend(RBP.to_le_bytes());
+    c.extend([0x48, 0xc7, 0xc3]); // mov rbx, imm32
+    c.extend(RBX.to_le_bytes());
     for (op, value) in MOV.iter().zip(ARGS) {
         c.extend(op);
         c.extend((value as u32).to_le_bytes());
@@ -47,27 +97,35 @@ fn guest_code() -> Vec<u8> {
     c.extend([0xb8, 39, 0, 0, 0]); // mov eax, 39 (getpid)
     c.extend([0x48, 0x8d, 0x64, 0x24, 0x80]); // lea rsp, [rsp - 128]
     c.extend([0x65, 0xff, 0x14, 0x25, 0x20, 0, 0, 0]); // call qword ptr gs:[0x20]
+    let resume = c.len();
     c.extend([0x48, 0x8d, 0xa4, 0x24, 0x80, 0, 0, 0]); // lea rsp, [rsp + 128]
     let mut jumps = Vec::new();
+    for (op, value) in [([0x48, 0x81, 0xfd], RBP), ([0x48, 0x81, 0xfb], RBX)] {
+        c.extend(op); // cmp rbp, imm32; cmp rbx, imm32
+        c.extend(value.to_le_bytes());
+        c.extend([0x75, 0]); // jne bad
+        jumps.push(c.len());
+    }
     for (op, value) in CMP.iter().zip(ARGS) {
         c.extend(op);
         c.extend((value as u32).to_le_bytes());
         c.extend([0x75, 0]); // jne bad
         jumps.push(c.len());
     }
-    c.push(0xc3); // ret: rax holds the handler's result
+    c.extend([0x5b, 0x5d, 0xc3]); // pop rbx; pop rbp; ret: rax holds the result
     let bad = c.len();
     for at in jumps {
         c[at - 1] = (bad - at) as u8;
     }
-    c.extend([0x48, 0xc7, 0xc0, 0xff, 0xff, 0xff, 0xff, 0xc3]); // mov rax, -1; ret
-    c
+    c.extend([0x48, 0xc7, 0xc0, 0xff, 0xff, 0xff, 0xff]); // mov rax, -1
+    c.extend([0x5b, 0x5d, 0xc3]); // pop rbx; pop rbp; ret
+    (c, resume)
 }
 
 #[test]
 fn a_guest_system_call_reaches_the_handler_and_preserves_registers() {
     set_syscall_handler(handler);
-    let code = guest_code();
+    let (code, resume) = guest_code();
     // SAFETY: a fresh anonymous mapping, written before it is made executable.
     let page = unsafe {
         let p = libc::mmap(
@@ -94,5 +152,17 @@ fn a_guest_system_call_reaches_the_handler_and_preserves_registers() {
         "the handler's result, and every register intact"
     );
     let seen = SEEN.lock().expect("lock").expect("handler ran");
-    assert_eq!(seen, [39, 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666]);
+    assert_eq!(
+        seen.call,
+        [39, 0x1111, 0x2222, 0x3333, 0x4444, 0x5555, 0x6666]
+    );
+    assert_eq!(
+        seen.saved,
+        [u64::from(RBX), u64::from(RBP), page + resume as u64],
+        "the guest's rbx, rbp, and return address"
+    );
+    assert!(
+        seen.linked,
+        "the handler's frame pointers lead to the entry's frame record"
+    );
 }

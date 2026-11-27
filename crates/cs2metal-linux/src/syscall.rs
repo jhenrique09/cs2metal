@@ -484,8 +484,8 @@ mod tests {
             arg3: args[3],
             arg4: args[4],
             arg5: args[5],
-            saved_rbp: 0,
             saved_rbx: 0,
+            saved_rbp: 0,
             return_address: 0,
         };
         answer(&mut frame) as i64

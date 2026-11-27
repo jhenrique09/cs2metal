@@ -117,6 +117,9 @@ The guest's glibc issues every system call through one slot, `tcbhead_t.sysinfo`
 `fs:0x20` (rewritten to `gs:0x20` by T-001), which points at a host entry. The entry
 preserves every register a Linux `syscall` preserves, switches to the host domain,
 answers the call with Linux semantics, and returns the result or `-errno` in `rax`.
+It keeps a standard frame record (the guest's `rbp` under the return address), so a
+host stack sample of a thread inside a system call continues into the guest code
+that made it.
 
 - Numbers, flags, structures, and errno values are Linux's on the guest side and are
   translated at the boundary: `stat`, `dirent64`, `sigaction`, socket addresses,

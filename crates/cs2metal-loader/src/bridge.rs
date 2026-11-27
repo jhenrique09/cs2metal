@@ -79,8 +79,11 @@ pub struct SyscallFrame {
     pub arg2: u64,
     pub arg1: u64,
     pub arg0: u64,
-    pub saved_rbp: u64,
     pub saved_rbx: u64,
+    /// The guest's `rbp`. With `return_address` after it, a frame record: the
+    /// entry's `rbp` points here, so a frame-pointer walk of a thread inside a
+    /// system call goes on into the guest code that made it.
+    pub saved_rbp: u64,
     /// Where the guest resumes: the instruction after its `call` through the slot.
     pub return_address: u64,
 }
@@ -346,12 +349,18 @@ mod imp {
     // below the red zone, with rax the Linux number and rdi, rsi, rdx, r10, r8, r9
     // the arguments. Like `syscall`, it changes only rax (the result), rcx, and r11;
     // the x87, MMX, and SSE state is saved with fxsave around the host code.
+    //
+    // rbp is pushed first and then points at its own saved value, under the
+    // return address: a standard frame record, so that a debugger or `sample`
+    // walks from the host code answering the call into the guest code that made
+    // it. The SyscallFrame is the 64 bytes below the record and those two words.
     core::arch::global_asm!(
         ".p2align 4",
         ".globl _cs2metal_syscall_entry",
         "_cs2metal_syscall_entry:",
-        "push rbx",
         "push rbp",
+        "mov rbp, rsp",
+        "push rbx",
         "push rdi",
         "push rsi",
         "push rdx",
@@ -360,18 +369,17 @@ mod imp {
         "push r9",
         "push rax",
         "mov rbx, qword ptr gs:[{block}]",
-        "mov rbp, rsp",
         "mov rdi, qword ptr [rbx + {tsd}]",
         "mov eax, 0x3000003",
         "syscall",
+        "lea rdi, [rbp - {below}]",
         "sub rsp, 576",
         "and rsp, -64",
         "fxsave64 [rsp]",
-        "mov rdi, rbp",
         "call {dispatch}",
-        "mov qword ptr [rbp], rax",
+        "mov qword ptr [rbp - {below}], rax",
         "fxrstor64 [rsp]",
-        "mov rsp, rbp",
+        "lea rsp, [rbp - {below}]",
         "mov rdi, qword ptr [rbx + {guest}]",
         "mov eax, 0x3000003",
         "syscall",
@@ -382,12 +390,13 @@ mod imp {
         "pop rdx",
         "pop rsi",
         "pop rdi",
-        "pop rbp",
         "pop rbx",
+        "pop rbp",
         "ret",
         block = const tcb::HOST_BLOCK,
         tsd = const host::TSD,
         guest = const host::GUEST_TP,
+        below = const core::mem::offset_of!(super::SyscallFrame, saved_rbp),
         dispatch = sym super::dispatch,
     );
 
