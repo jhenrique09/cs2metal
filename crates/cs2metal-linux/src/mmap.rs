@@ -93,6 +93,19 @@ fn sites(fd: libc::c_int) -> Option<Arc<Sites>> {
 
 /// Applies T-001 to `len` bytes mapped at `addr` from file offset `offset`.
 fn rewrite(fd: libc::c_int, addr: u64, len: u64, offset: u64, prot: libc::c_int) -> i64 {
+    if std::env::var_os("CS2METAL_MAPS").is_some() {
+        let mut path = vec![0u8; libc::PATH_MAX as usize];
+        // SAFETY: F_GETPATH writes at most PATH_MAX bytes.
+        if unsafe { libc::fcntl(fd, libc::F_GETPATH, path.as_mut_ptr()) } == 0 {
+            let end = path.iter().position(|&b| b == 0).unwrap_or(0);
+            eprintln!(
+                "cs2metal: map {:#x}-{:#x} offset {offset:#x} {}",
+                addr,
+                addr + len,
+                String::from_utf8_lossy(&path[..end])
+            );
+        }
+    }
     let Some(sites) = sites(fd) else {
         return 0;
     };

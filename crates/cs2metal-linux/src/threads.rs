@@ -181,7 +181,21 @@ pub(crate) fn futex(addr: u64, op: u64, val: u64, timeout: u64, _addr2: u64, _va
                 }
             }
         }
-        _ => ENOSYS,
+        _ => {
+            unsupported_futex(cmd);
+            ENOSYS
+        }
+    }
+}
+
+/// Names each futex operation the host does not answer, once.
+fn unsupported_futex(cmd: u64) {
+    static SEEN: std::sync::Mutex<u64> = std::sync::Mutex::new(0);
+    if let Ok(mut seen) = SEEN.lock() {
+        if cmd < 64 && *seen & (1 << cmd) == 0 {
+            *seen |= 1 << cmd;
+            eprintln!("cs2metal: unsupported futex operation {cmd}");
+        }
     }
 }
 
