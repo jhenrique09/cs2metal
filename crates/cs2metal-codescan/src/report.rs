@@ -1,16 +1,19 @@
+use std::collections::BTreeMap;
 use std::fmt::Write;
 
 use crate::{Entry, FsAccess, ModuleScan};
 
 fn add(total: &mut ModuleScan, m: &ModuleScan) {
-    total.executable_bytes += m.executable_bytes;
+    total.code_bytes += m.code_bytes;
     total.covered_bytes += m.covered_bytes;
     total.functions += m.functions;
     for (kind, n) in &m.fs_accesses {
         *total.fs_accesses.entry(*kind).or_default() += n;
     }
     total.rewritable += m.rewritable;
-    total.uncovered_fs += m.uncovered_fs;
+    for (kind, n) in &m.uncovered_fs {
+        *total.uncovered_fs.entry(*kind).or_default() += n;
+    }
     total.decode_failures += m.decode_failures;
 }
 
@@ -27,6 +30,7 @@ pub fn markdown(entries: &[Entry]) -> String {
 
     let mut total = ModuleScan::default();
     let mut clean = 0;
+    let mut bounded = 0;
     let scanned: Vec<(&str, &ModuleScan)> = entries
         .iter()
         .filter_map(|e| e.result.as_ref().ok().map(|m| (e.path.as_str(), m)))
@@ -34,6 +38,7 @@ pub fn markdown(entries: &[Entry]) -> String {
     for (_, m) in &scanned {
         add(&mut total, m);
         clean += usize::from(m.rewrite_is_clean());
+        bounded += usize::from(m.code_from_sections);
     }
 
     let _ = writeln!(w, "## Summary\n");
@@ -45,7 +50,11 @@ pub fn markdown(entries: &[Entry]) -> String {
         entries.len() - scanned.len()
     );
     let _ = writeln!(w, "| Modules whose rewrite is clean | {clean} |");
-    let _ = writeln!(w, "| Executable bytes | {} |", total.executable_bytes);
+    let _ = writeln!(
+        w,
+        "| Modules whose code the section table bounds | {bounded} |"
+    );
+    let _ = writeln!(w, "| Code bytes | {} |", total.code_bytes);
     let _ = writeln!(
         w,
         "| Covered by unwind tables | {:.1}% |",
@@ -56,11 +65,10 @@ pub fn markdown(entries: &[Entry]) -> String {
         let _ = writeln!(w, "| `{}` accesses | {n} |", kind.label());
     }
     let _ = writeln!(w, "| Rewritable (prefix located) | {} |", total.rewritable);
-    let _ = writeln!(
-        w,
-        "| `fs` prefixes outside unwind ranges | {} |",
-        total.uncovered_fs
-    );
+    for kind in FsAccess::ALL {
+        let n = total.uncovered_fs.get(&kind).copied().unwrap_or(0);
+        let _ = writeln!(w, "| `{}` outside unwind ranges | {n} |", kind.label());
+    }
     let _ = writeln!(
         w,
         "| Decoder failures in covered ranges | {} |\n",
@@ -70,25 +78,30 @@ pub fn markdown(entries: &[Entry]) -> String {
     let _ = writeln!(w, "## Modules\n");
     let _ = writeln!(
         w,
-        "| Module | Exec KB | Covered | fs:0 | 0x28 | 0x30 | const | reg | Uncovered fs | Bad | TLS | Clean |"
+        "| Module | Code KB | Bounds | Covered | fs:0 | 0x28 | 0x30 | const | reg | Uncovered fs | Bad | TLS | Clean |"
     );
     let _ = writeln!(
         w,
-        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |"
     );
     for (path, m) in &scanned {
         let n = |k: FsAccess| m.fs_accesses.get(&k).copied().unwrap_or(0);
         let _ = writeln!(
             w,
-            "| `{path}` | {} | {:.1}% | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
-            m.executable_bytes / 1024,
+            "| `{path}` | {} | {} | {:.1}% | {} | {} | {} | {} | {} | {} | {} | {} | {} |",
+            m.code_bytes / 1024,
+            if m.code_from_sections {
+                "sections"
+            } else {
+                "segments"
+            },
             100.0 * m.coverage(),
             n(FsAccess::ThreadPointer),
             n(FsAccess::StackGuard),
             n(FsAccess::PointerGuard),
             n(FsAccess::ConstantOffset),
             n(FsAccess::RegisterRelative),
-            m.uncovered_fs,
+            by_kind(&m.uncovered_fs),
             m.decode_failures,
             m.tls.summary(&m.fs_accesses).join(", "),
             if m.rewrite_is_clean() {
@@ -104,7 +117,11 @@ pub fn markdown(entries: &[Entry]) -> String {
         .collect();
     let unwind: Vec<_> = scanned
         .iter()
-        .filter_map(|(p, m)| m.unwind_error.as_ref().map(|e| (p, e)))
+        .flat_map(|(p, m)| {
+            let unwind = m.unwind_error.as_ref().map(|e| (p, e));
+            let sections = m.section_error.as_ref().map(|e| (p, e));
+            unwind.into_iter().chain(sections)
+        })
         .collect();
     if !failures.is_empty() || !unwind.is_empty() {
         let _ = writeln!(w, "\n## Problems\n");
@@ -116,4 +133,22 @@ pub fn markdown(entries: &[Entry]) -> String {
         }
     }
     out
+}
+
+/// `0`, or the non-zero counts by kind, such as `fs:0 10, fs:0x28 3`.
+fn by_kind(counts: &BTreeMap<FsAccess, u64>) -> String {
+    let parts: Vec<String> = FsAccess::ALL
+        .iter()
+        .filter_map(|k| {
+            counts
+                .get(k)
+                .filter(|&&n| n > 0)
+                .map(|n| format!("{} {n}", k.label()))
+        })
+        .collect();
+    if parts.is_empty() {
+        "0".to_owned()
+    } else {
+        parts.join(", ")
+    }
 }

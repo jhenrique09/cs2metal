@@ -62,9 +62,11 @@ fn measures_coverage_and_what_lies_outside_it() {
     let m = scan(module());
     let (bytes, _) = code();
     assert_eq!(m.functions, 2);
-    assert_eq!(m.executable_bytes, bytes.len() as u64);
+    assert!(!m.code_from_sections);
+    assert_eq!(m.code_bytes, bytes.len() as u64);
     assert_eq!(m.covered_bytes, bytes.len() as u64 - 4);
-    assert_eq!(m.uncovered_fs, 1);
+    assert_eq!(m.uncovered_total(), 1);
+    assert_eq!(m.uncovered_fs.get(&FsAccess::RegisterRelative), Some(&1));
     assert_eq!(m.decode_failures, 1);
     assert!(!m.rewrite_is_clean());
 }
@@ -97,8 +99,59 @@ fn a_module_without_unwind_tables_is_swept_but_never_clean() {
     let m = scan(ElfBuilder::shared_object("libasm.so").code(&code, &[]));
     assert_eq!(m.functions, 0);
     assert_eq!(m.covered_bytes, 0);
-    assert_eq!(m.uncovered_fs, 1);
+    assert_eq!(m.uncovered_total(), 1);
     assert!(!m.rewrite_is_clean());
+}
+
+/// Code followed by read-only data in the same executable segment, as some linkers
+/// lay objects out. The data is ASCII text: "d\n" followed by NUL is 0x64 0x0a 0x00,
+/// which decodes as `or al, fs:[rax]`.
+fn code_then_strings() -> Vec<u8> {
+    let mut bytes = vec![0x64, 0x48, 0x8b, 0x04, 0x25, 0x28, 0, 0, 0, 0xc3]; // fs:0x28; ret
+    bytes.extend_from_slice(b"%d\n\0%d\n\0");
+    bytes
+}
+
+#[test]
+fn data_mapped_with_code_is_not_swept_when_sections_bound_the_code() {
+    let bytes = code_then_strings();
+    let without = scan(ElfBuilder::shared_object("liblayout.so").code(&bytes, &[(0, 10)]));
+    assert!(
+        without.uncovered_total() > 0,
+        "strings decode as fs accesses"
+    );
+
+    let with = scan(
+        ElfBuilder::shared_object("liblayout.so")
+            .code(&bytes, &[(0, 10)])
+            .code_sections(&[(0, 10)]),
+    );
+    assert!(with.code_from_sections);
+    assert_eq!(with.code_bytes, 10);
+    assert_eq!(with.coverage(), 1.0);
+    assert_eq!(with.uncovered_total(), 0);
+    assert!(with.rewrite_is_clean());
+}
+
+#[test]
+fn uncovered_code_inside_a_section_is_still_counted_by_kind() {
+    let mut bytes = code_then_strings();
+    bytes.truncate(10);
+    bytes.extend([0x64, 0x48, 0x8b, 0x04, 0x25, 0, 0, 0, 0, 0xc3]); // mov rax, fs:0; ret
+    let m = scan(
+        ElfBuilder::shared_object("libnofde.so")
+            .code(&bytes, &[(0, 10)])
+            .code_sections(&[(0, 20)]),
+    );
+    assert_eq!(m.uncovered_fs.get(&FsAccess::ThreadPointer), Some(&1));
+    assert_eq!(m.uncovered_total(), 1);
+    assert!(!m.rewrite_is_clean());
+    let report = markdown(&[cs2metal_codescan::Entry {
+        path: "libnofde.so".to_owned(),
+        result: Ok(m),
+    }]);
+    assert!(report.contains("| `fs:0` outside unwind ranges | 1 |"));
+    assert!(report.contains("| sections |"));
 }
 
 #[test]

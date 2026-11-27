@@ -4,8 +4,10 @@
 //! For each module the scan decodes every instruction inside the code ranges the
 //! `.eh_frame` unwind tables describe, classifies each `fs`-prefixed instruction,
 //! and checks that its `0x64` prefix byte can be located for a same-length rewrite.
-//! Executable bytes outside those ranges are swept linearly only to count `fs`
-//! prefixes there: they are what T-001 could not rewrite safely. The TLS models a
+//! Code outside those ranges is swept linearly only to count `fs` prefixes there:
+//! they are what T-001 could not rewrite safely. Code means the executable sections
+//! when the object has a section table, because some linkers map read-only data in
+//! the executable segment, and the executable segments otherwise. The TLS models a
 //! module uses come from its dynamic relocations and from its code.
 //!
 //! Nothing is modified. Reports derived from Valve's binaries stay local.
@@ -99,9 +101,15 @@ impl TlsModels {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct ModuleScan {
     pub machine: String,
-    /// File bytes of the executable `PT_LOAD` segments.
-    pub executable_bytes: u64,
-    /// Executable bytes inside some FDE range.
+    /// Whether code was bounded by the section table rather than by segments.
+    pub code_from_sections: bool,
+    /// Why the section table could not be read, if it could not. The scan then
+    /// falls back to whole segments.
+    pub section_error: Option<String>,
+    /// Bytes of code: executable sections inside executable `PT_LOAD` segments, or
+    /// the segments' file bytes when there is no section table.
+    pub code_bytes: u64,
+    /// Code bytes inside some FDE range.
     pub covered_bytes: u64,
     pub functions: usize,
     /// Why the unwind tables could not be read, if they could not.
@@ -111,9 +119,10 @@ pub struct ModuleScan {
     /// Covered `fs` accesses whose `0x64` prefix byte was located, so a
     /// same-length rewrite to `0x65` is mechanical.
     pub rewritable: u64,
-    /// `fs`-prefixed instructions a linear sweep finds in uncovered bytes. They may
-    /// be code without unwind information or data that happens to decode.
-    pub uncovered_fs: u64,
+    /// `fs`-prefixed instructions a linear sweep finds in uncovered code, by kind.
+    /// They are code without unwind information, or, without a section table,
+    /// possibly data that happens to decode.
+    pub uncovered_fs: BTreeMap<FsAccess, u64>,
     /// Instructions inside covered ranges that do not decode.
     pub decode_failures: u64,
     pub tls: TlsModels,
@@ -124,11 +133,15 @@ impl ModuleScan {
         self.fs_accesses.values().sum()
     }
 
+    pub fn uncovered_total(&self) -> u64 {
+        self.uncovered_fs.values().sum()
+    }
+
     pub fn coverage(&self) -> f64 {
-        if self.executable_bytes == 0 {
+        if self.code_bytes == 0 {
             1.0
         } else {
-            self.covered_bytes as f64 / self.executable_bytes as f64
+            self.covered_bytes as f64 / self.code_bytes as f64
         }
     }
 
@@ -136,7 +149,7 @@ impl ModuleScan {
     /// all found, all located, none outside the unwind tables, nothing undecodable.
     pub fn rewrite_is_clean(&self) -> bool {
         self.unwind_error.is_none()
-            && self.uncovered_fs == 0
+            && self.uncovered_total() == 0
             && self.decode_failures == 0
             && self.rewritable == self.covered_fs()
     }

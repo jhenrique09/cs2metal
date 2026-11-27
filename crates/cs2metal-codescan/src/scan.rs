@@ -1,5 +1,5 @@
 use cs2metal_elf::consts::PT_LOAD;
-use cs2metal_elf::{Elf, FunctionRange, unwind_ranges};
+use cs2metal_elf::{Elf, FunctionRange, executable_sections, unwind_ranges};
 use iced_x86::{Decoder, DecoderOptions, Instruction, Register};
 
 use crate::{FsAccess, ModuleScan, TlsModels};
@@ -87,7 +87,11 @@ impl Tally<'_> {
         while decoder.can_decode() {
             decoder.decode_out(&mut instruction);
             if !instruction.is_invalid() && instruction.segment_prefix() == Register::FS {
-                self.scan.uncovered_fs += 1;
+                *self
+                    .scan
+                    .uncovered_fs
+                    .entry(classify(&instruction))
+                    .or_default() += 1;
             }
         }
     }
@@ -118,6 +122,18 @@ pub fn scan_module(data: &[u8], elf: &Elf) -> ModuleScan {
     };
     scan.functions = ranges.len();
 
+    // Code is the executable sections when the object names them; otherwise all of
+    // each executable segment, which may include data mapped with it.
+    let sections = match executable_sections(data) {
+        Ok(Some(list)) => Some(list),
+        Ok(None) => None,
+        Err(e) => {
+            scan.section_error = Some(e.to_string());
+            None
+        }
+    };
+    scan.code_from_sections = sections.is_some();
+
     let mut tally = Tally { scan: &mut scan };
     let executable = elf
         .segments
@@ -130,20 +146,29 @@ pub fn scan_module(data: &[u8], elf: &Elf) -> ModuleScan {
             continue;
         };
         let (lo, hi) = (segment.vaddr, segment.vaddr + segment.file_size);
-        tally.scan.executable_bytes += segment.file_size;
-
-        let mut cursor = lo;
-        for (start, end) in clip_and_merge(&ranges, lo, hi) {
-            let slice = |a: u64, b: u64| &bytes[(a - lo) as usize..(b - lo) as usize];
-            if cursor < start {
-                tally.uncovered(slice(cursor, start), cursor);
+        let regions = match &sections {
+            Some(list) => list
+                .iter()
+                .map(|s| (s.start.max(lo), s.end.min(hi)))
+                .filter(|(a, b)| a < b)
+                .collect(),
+            None => vec![(lo, hi)],
+        };
+        let slice = |a: u64, b: u64| &bytes[(a - lo) as usize..(b - lo) as usize];
+        for (rlo, rhi) in regions {
+            tally.scan.code_bytes += rhi - rlo;
+            let mut cursor = rlo;
+            for (start, end) in clip_and_merge(&ranges, rlo, rhi) {
+                if cursor < start {
+                    tally.uncovered(slice(cursor, start), cursor);
+                }
+                tally.covered(slice(start, end), start);
+                tally.scan.covered_bytes += end - start;
+                cursor = end;
             }
-            tally.covered(slice(start, end), start);
-            tally.scan.covered_bytes += end - start;
-            cursor = end;
-        }
-        if cursor < hi {
-            tally.uncovered(&bytes[(cursor - lo) as usize..], cursor);
+            if cursor < rhi {
+                tally.uncovered(slice(cursor, rhi), cursor);
+            }
         }
     }
     scan
