@@ -423,6 +423,12 @@ Gate (Gate 1): one route chosen with the measurements recorded in a dated resear
 document, then its first slice built until the C++ fixtures pass with the guest
 libstdc++ and libgcc_s from A5.
 
+State: the bake-off ran on 27 November 2026 ([results](LIBC_BAKEOFF_2026-11-27.md)).
+Route B is ruled out: a trapped system call costs about 34 µs under Rosetta 2.
+Route C sends 970 of glibc's 975 system call sites through one slot with 20 changed
+source lines and a two-minute build. The [decision](LIBC_ROUTE_DECISION.md)
+proposes route C with glibc's own ld.so and waits for the owner.
+
 ### C4. `cs2metal run` and the first engine boot (to build, M, then iterative)
 
 The command this roadmap is building toward:

@@ -23,6 +23,7 @@ as the code. It began as a separate repository and was merged, with its history,
 | [The Linux build is the baseline](LINUX_BUILD_BASELINE_DECISION.md) | Accepted, 26 November 2026. |
 | [Thread-local storage under Rosetta](TLS_UNDER_ROSETTA_DECISION.md) | Proposed: rewrite `fs` prefixes to `gs` in private mappings and swap GS at the boundary. Accepted at the M2 gate. |
 | [Stay on Rosetta for now](ROSETTA_HORIZON_DECISION.md) | Accepted, 27 November 2026: a research prototype on Rosetta; no arm64 translator work; Rosetta-specific code isolated. |
+| [How the guest gets its C library](LIBC_ROUTE_DECISION.md) | Proposed, 27 November 2026, waiting for the owner: glibc 2.31 rebuilt with one system call slot, with its own ld.so (route C). |
 | [Linux fixtures are rebuilt, not tracked](FIXTURES_DECISION.md) | Proposed, 27 November 2026, in effect for C1: track sources, expected outputs, and checksums; build in the pinned SDK image. |
 | [Steam bridge design](STEAM_BRIDGE_DESIGN.md) | Accepted, 27 November 2026, after probes H-1 and H-2 passed: keep the game's own Linux `libsteam_api.so` and bridge it to the macOS client library, so only Valve's code handles identity and licences. |
 
@@ -40,6 +41,7 @@ as the code. It began as a separate repository and was merged, with its history,
 | [Vulkan drivers measured on the Mac, 27 November 2026](VULKAN_DRIVER_MEASUREMENT_2026-11-27.md) | MoltenVK presents from an x86-64 process under Rosetta 2 (Q-6); the SDK's KosmicKrisp is arm64 only. Of the Linux renderer's 68 device extension names MoltenVK offers 33; both drivers report every subgroup operation and BC compression. |
 | [Steam app probe, 27 November 2026](STEAM_APP_PROBE_2026-11-27.md) | Partial H-2: the macOS client accepts an x86-64 process as app 730 and answers that the account holds it; it was offline, so the server connection is measured again. |
 | [Steam app probe online, 27 November 2026](STEAM_APP_PROBE_ONLINE_2026-11-27.md) | H-2 holds: the connected macOS client serves app 730 to an x86-64 process and answers for the account's licence. Gate 0 passes. |
+| [The libc bake-off, 27 November 2026](LIBC_BAKEOFF_2026-11-27.md) | Route B ruled out (a trapped system call costs about 34 µs under Rosetta); route C sends 970 of 975 glibc system call sites through one slot with 20 source lines; route A means 682 functions, about 430 crossing or stateful. |
 | [Route and effort review, 27 November 2026](ROUTE_AND_EFFORT_REVIEW_2026-11-27.md) | Owner-requested assessment of the chosen route, its technical gates, alternative libc strategies, Native VIctory reuse, and realistic effort. |
 
 ## Backlog

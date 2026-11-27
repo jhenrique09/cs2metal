@@ -123,6 +123,12 @@ and the M2 to M3 scope below is revised to match.
   refusal policy, and the GS bridge both ways (a guest call trampoline and a host
   thunk with a per-thread stack). The `tlsprobe` fixture matches its Linux output
   from four threads, 20 runs out of 20.
+- [x] The libc bake-off (roadmap step C3, first half of Gate 1), on 27 November
+  2026: route B ruled out by the cost of a trapped system call, route C measured
+  at 20 source lines and a two-minute build, route A sized at 682 functions
+  ([bake-off](LIBC_BAKEOFF_2026-11-27.md)).
+- [ ] **Owner decision:** the [libc route](LIBC_ROUTE_DECISION.md). Proposed: route
+  C, glibc rebuilt with one system call slot, with its own ld.so.
 - [ ] Acceptance of the [TLS decision](TLS_UNDER_ROSETTA_DECISION.md): fixtures that
   use `__thread`, the stack protector, and threads run correctly with the rewrite.
 
