@@ -28,12 +28,19 @@ cp rt/librt.so /w/out/librt.so.1
 # The shims: small Linux libraries cs2metal serves in place of host-bound ones.
 # /spec/generated holds what tools/guest-glibc.sh generated for them on the Mac.
 mkdir /w/out/shims
+# A shim's file name is its soname: the source's name, with ".so" added unless it
+# has one (steamclient.c gives steamclient.so, libSDL3.so.0.c gives libSDL3.so.0).
+# A .map beside the source is its version script.
 for src in /spec/shims/*.c; do
     name=$(basename "$src" .c)
+    [[ "$name" == *.so* ]] || name="$name.so"
+    map="${src%.c}.map"
+    versions=()
+    [[ -f "$map" ]] && versions=(-Wl,--version-script="$map")
     gcc -O2 -fPIC -shared -nostdlib -fno-stack-protector -g0 -fno-ident \
         -ffile-prefix-map=/spec=. -I/spec/generated -Wall -Werror \
-        -Wl,--hash-style=gnu -Wl,-z,now -Wl,--build-id=sha1 -Wl,-soname,"$name.so" \
-        "$src" -o "/w/out/shims/$name.so"
+        -Wl,--hash-style=gnu -Wl,-z,now -Wl,--build-id=sha1 -Wl,-soname,"$name" \
+        "${versions[@]}" "$src" -o "/w/out/shims/$name"
 done
 echo "glibc: shims built: $(ls /w/out/shims | tr '\n' ' ')"
 

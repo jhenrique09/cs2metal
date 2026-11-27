@@ -545,6 +545,11 @@ thunks, with callbacks entering the guest domain. Events must be pumped on the
 process's main thread, as macOS requires. Gate: the game's window opens and receives
 keyboard and mouse input.
 
+State: the bridge is built, 27 November 2026 ([SDL bridge](SDL_BRIDGE.md)): the
+game's `libSDL3.so.0` is answered with a shim bound by name to the Vulkan SDK's
+universal SDL 3, 1,270 of its 1,302 functions, with guest callbacks through the
+guest thunk. The first client boot loads it; the window is next.
+
 ## Phase F: Vulkan and the first frame
 
 ### F1. A Vulkan driver inside a Rosetta process (exists today)

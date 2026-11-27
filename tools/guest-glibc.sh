@@ -24,6 +24,7 @@ echo "guest-glibc: building on the x86-64 host named by CS2METAL_BUILD_HOST"
 ssh -o BatchMode=yes "$host" "mkdir -p $work/spec $work/debian"
 # The shims' generated headers come from the owner's own libraries, never tracked.
 "$root/tools/steam-shim-names.sh"
+"$root/tools/sdl-shim-names.sh"
 rsync -a --delete "$root/guest/" "$host:$work/spec/"
 rsync -a --delete "$root/target/guest-shims/" "$host:$work/spec/generated/"
 ssh -o BatchMode=yes "$host" bash -s <<REMOTE

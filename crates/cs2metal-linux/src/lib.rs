@@ -15,6 +15,7 @@ mod mmap;
 mod more;
 mod net;
 mod paths;
+mod sdl;
 mod steam;
 mod syscall;
 mod threads;
@@ -197,6 +198,13 @@ pub fn exec(launch: &Launch) -> Result<Infallible, Error> {
         let shim = dir.join("shims/steamclient.so");
         if let (Ok(mut slot), Ok(path)) = (
             steam::SHIM.lock(),
+            CString::new(shim.to_string_lossy().as_bytes()),
+        ) {
+            *slot = Some(path);
+        }
+        let shim = dir.join("shims/libSDL3.so.0");
+        if let (Ok(mut slot), Ok(path)) = (
+            sdl::SHIM.lock(),
             CString::new(shim.to_string_lossy().as_bytes()),
         ) {
             *slot = Some(path);

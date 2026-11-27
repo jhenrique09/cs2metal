@@ -1,0 +1,6 @@
+/* The game's SDL exports its functions with this version, and its modules
+   import them with it. */
+SDL3_0.0.0 {
+    global: SDL_*;
+    local: *;
+};

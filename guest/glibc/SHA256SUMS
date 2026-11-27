@@ -4,4 +4,5 @@
 e83da763823fb58be8921a435a90cab91620603ec4c123a6ec0f075fb46787f5  ./libm.so.6
 3ffa2ce81d7e8cdb49f72d9fd2fc91e31acfd3ee47d0b890c307a3f4f886da7e  ./libpthread.so.0
 b19a74c7eeb96eafa754c7243e51fe3c9f3eb0f036529891e5f0d199ee1bd000  ./librt.so.1
+ad15ef09e968334ae1f701eb553cae6dccf93effabaca4e2d187b8512f06524e  ./shims/libSDL3.so.0
 aba99541d4b708bbf7e6bf8366447aac54e97dc7d209c4c04c694c7608ef41b2  ./shims/steamclient.so
