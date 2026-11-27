@@ -166,7 +166,11 @@ shaders, in the user's cache directory (`com.apple.metal`). Three habits keep th
 ```
 
 The application runs `run.sh`: it opens Steam if Steam is not running, updates the
-game if there is an update, and starts the game online. It shows in Spotlight,
+game if there is an update, and starts the game online. Started this way, macOS
+follows the game as an application that declares itself a game and asks for Game
+Mode; started from a terminal, its game policy does not see the process at all
+([measurements](PERFORMANCE_HOST_CHANGES_2026-11-27.md)). A shortcut made before
+27 November 2026 does not ask for Game Mode: run `create-shortcut.sh` again. It shows in Spotlight,
 Launchpad, and the Dock under the game's name. Its icon is converted on your Mac from the game's own
 icon file; nothing of Valve's is shipped with cs2metal. `--steam` adds it to the
 non-Steam games of every Steam account on the Mac. Steam must be quit for that,

@@ -256,6 +256,9 @@ against the bundled modules, and lists what a host must provide. Reports go to
 - [Architecture](docs/ARCHITECTURE.md): how the host is built.
 - [The client, playable offline](docs/CLIENT_PLAYABLE_2026-11-27.md) and
   [online play](docs/ONLINE_PLAY_2026-11-27.md): what was measured and reported.
+- [Where the time goes](docs/PERFORMANCE_AB_2026-11-27.md) and
+  [what the host changes gained](docs/PERFORMANCE_HOST_CHANGES_2026-11-27.md): the
+  performance measurements.
 - [Anti-cheat, integrity, and legal policy](docs/ANTI_CHEAT_AND_INTEGRITY_POLICY.md):
   the rules, and the risk.
 
