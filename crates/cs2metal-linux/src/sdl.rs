@@ -162,6 +162,10 @@ extern "C" fn event_watch(record: *const Callback, event: *mut c_void) -> bool {
     }
     // SAFETY: the record lives while the watch is registered.
     let record = unsafe { &*record };
+    if tracing() && !event.is_null() {
+        // SAFETY: SDL passes the event it is adding.
+        note_event("an event watch", unsafe { event_kind(event as u64) });
+    }
     // SAFETY: the stub enters the guest's SDL_EventFilter.
     let f: EventFilter = unsafe { std::mem::transmute(record.stub as usize) };
     f(record.userdata, event)
@@ -201,6 +205,291 @@ extern "C" fn remove_event_watch(filter: u64, userdata: u64) {
             std::ptr::from_ref(record.as_ref()) as u64,
         );
     }
+}
+
+// --- Events and input, traced --------------------------------------------------------
+
+/// Counts an event of type `kind` that reached the game by way of `source`, and
+/// names the first of each kind and then every power of two, for the trace.
+fn note_event(source: &'static str, kind: u32) {
+    static SEEN: Mutex<Vec<(&'static str, u32, u64)>> = Mutex::new(Vec::new());
+    let Ok(mut seen) = SEEN.lock() else {
+        return;
+    };
+    let n = match seen.iter_mut().find(|(s, k, _)| *s == source && *k == kind) {
+        Some((_, _, n)) => {
+            *n += 1;
+            *n
+        }
+        None => {
+            seen.push((source, kind, 1));
+            1
+        }
+    };
+    if n.is_power_of_two() {
+        eprintln!("cs2metal: SDL event {kind:#x} by {source} ({n} times)");
+    }
+}
+
+/// The window the game made, for the trace's state lines.
+static WINDOW: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// A host function of no arguments or of the game's window, called for the
+/// trace; 0 if the host library lacks it.
+fn window_state(name: &str, window: Option<u64>) -> u64 {
+    let f = real(name);
+    if f == 0 {
+        return 0;
+    }
+    match window {
+        Some(w) => {
+            // SAFETY: the host library's function of that name, which takes a window.
+            let f = unsafe { std::mem::transmute::<usize, extern "C" fn(u64) -> u64>(f) };
+            f(w)
+        }
+        None => {
+            // SAFETY: the host library's function of that name, which takes nothing.
+            let f = unsafe { std::mem::transmute::<usize, extern "C" fn() -> u64>(f) };
+            f()
+        }
+    }
+}
+
+/// Names, when it changes, what SDL holds about focus and the cursor: called
+/// on the thread that takes the events.
+fn note_focus_state() {
+    let window = WINDOW.load(std::sync::atomic::Ordering::Relaxed);
+    if window == 0 {
+        return;
+    }
+    let state = [
+        window_state("SDL_GetKeyboardFocus", None),
+        window_state("SDL_GetMouseFocus", None),
+        window_state("SDL_GetWindowFlags", Some(window)),
+        window_state("SDL_CursorVisible", None) & 0xff,
+        window_state("SDL_GetWindowRelativeMouseMode", Some(window)) & 0xff,
+        window_state("SDL_TextInputActive", Some(window)) & 0xff,
+    ];
+    static LAST: Mutex<[u64; 6]> = Mutex::new([u64::MAX; 6]);
+    let Ok(mut last) = LAST.lock() else {
+        return;
+    };
+    if *last != state {
+        *last = state;
+        eprintln!(
+            "cs2metal: SDL state: window {window:#x}, keyboard focus {:#x}, mouse focus {:#x}, \
+             flags {:#x}, cursor visible {}, relative mouse {}, text input {}",
+            state[0], state[1], state[2], state[3], state[4], state[5]
+        );
+    }
+}
+
+/// The type of the SDL_Event at `event`.
+///
+/// # Safety
+///
+/// `event` must point at an SDL_Event.
+unsafe fn event_kind(event: u64) -> u32 {
+    // SAFETY: the caller's contract; every event starts with its type.
+    unsafe { std::ptr::read_unaligned(event as *const u32) }
+}
+
+/// `SDL_PollEvent(event)`, traced.
+extern "C" fn traced_poll_event(event: u64) -> bool {
+    let f = real("SDL_PollEvent");
+    if f == 0 {
+        return false;
+    }
+    // SAFETY: the host library's SDL_PollEvent.
+    let f = unsafe { std::mem::transmute::<usize, extern "C" fn(u64) -> bool>(f) };
+    let got = f(event);
+    if got && event != 0 {
+        // SAFETY: SDL filled the guest's event.
+        note_event("SDL_PollEvent", unsafe { event_kind(event) });
+    }
+    note_focus_state();
+    got
+}
+
+/// `SDL_WaitEventTimeout(event, timeout)`, traced.
+extern "C" fn traced_wait_event_timeout(event: u64, timeout: i32) -> bool {
+    let f = real("SDL_WaitEventTimeout");
+    if f == 0 {
+        return false;
+    }
+    // SAFETY: the host library's SDL_WaitEventTimeout.
+    let f = unsafe { std::mem::transmute::<usize, extern "C" fn(u64, i32) -> bool>(f) };
+    let got = f(event, timeout);
+    if got && event != 0 {
+        // SAFETY: SDL filled the guest's event.
+        note_event("SDL_WaitEventTimeout", unsafe { event_kind(event) });
+    }
+    got
+}
+
+/// `SDL_PeepEvents(events, count, action, min, max)`, traced: the events it
+/// hands out. An SDL_Event is 128 bytes.
+extern "C" fn traced_peep_events(events: u64, count: i32, action: u32, min: u32, max: u32) -> i32 {
+    let f = real("SDL_PeepEvents");
+    if f == 0 {
+        return -1;
+    }
+    // SAFETY: the host library's SDL_PeepEvents.
+    let f =
+        unsafe { std::mem::transmute::<usize, extern "C" fn(u64, i32, u32, u32, u32) -> i32>(f) };
+    let got = f(events, count, action, min, max);
+    note_focus_state();
+    // SDL_ADDEVENT is 0; the other actions hand events out.
+    if action != 0 && events != 0 {
+        for i in 0..u64::try_from(got).unwrap_or(0) {
+            // SAFETY: SDL filled `got` of the guest's events.
+            note_event("SDL_PeepEvents", unsafe { event_kind(events + 128 * i) });
+        }
+    }
+    got
+}
+
+/// A wrapper that names every call of the host library's `$name` with its
+/// first two arguments and its result, for the trace: calls that are few.
+macro_rules! named {
+    ($wrapper:ident, $name:literal) => {
+        extern "C" fn $wrapper(a: u64, b: u64, c: u64) -> u64 {
+            let f = real($name);
+            if f == 0 {
+                return 0;
+            }
+            // SAFETY: the host library's function of that name; the ABI
+            // ignores arguments it does not take.
+            let f = unsafe { std::mem::transmute::<usize, extern "C" fn(u64, u64, u64) -> u64>(f) };
+            let result = f(a, b, c);
+            let callers = guest_callers();
+            eprintln!(
+                "cs2metal: {}({a:#x}, {:#x}) returned {:#x}, callers {:#x} {:#x} {:#x}",
+                $name,
+                b & 0xffff_ffff,
+                result & 0xff,
+                callers[0],
+                callers[1],
+                callers[2]
+            );
+            result
+        }
+    };
+}
+
+/// The guest return addresses above a wrapper the guest called through the
+/// host thunk, for the trace: where the guest made the call, from the thunk's
+/// own record, then that function's callers. The thunk leaves `rbp` alone, so
+/// the wrapper's saved `rbp` is the guest caller's frame.
+#[inline(always)]
+fn guest_callers() -> [u64; 3] {
+    let mut found = [0u64; 3];
+    found[0] = crate::syscall::BLOCK.with(|b| {
+        b.try_borrow()
+            .ok()
+            .and_then(|b| b.as_ref().and_then(|b| b.current_call()))
+            .map_or(0, |(_, back)| back)
+    });
+    #[cfg(target_arch = "x86_64")]
+    {
+        let mut frame: u64;
+        // SAFETY: reads a register.
+        unsafe { core::arch::asm!("mov {}, rbp", out(reg) frame, options(nomem, nostack)) };
+        // SAFETY: this function's own frame record.
+        frame = unsafe { std::ptr::read(frame as *const u64) };
+        for slot in &mut found[1..] {
+            if frame == 0 || frame % 8 != 0 {
+                break;
+            }
+            // SAFETY: a frame record of the guest's stack, by the guest's
+            // frame pointers.
+            let [next, caller] = unsafe { std::ptr::read(frame as *const [u64; 2]) };
+            *slot = caller;
+            if next <= frame {
+                break;
+            }
+            frame = next;
+        }
+    }
+    found
+}
+
+/// A wrapper that names a call of the host library's `$name` whenever its
+/// first argument or its result differs from the call before, for the trace:
+/// lookups that are made often and seldom change.
+macro_rules! changed {
+    ($wrapper:ident, $name:literal) => {
+        extern "C" fn $wrapper(a: u64, b: u64, c: u64) -> u64 {
+            let f = real($name);
+            if f == 0 {
+                return 0;
+            }
+            // SAFETY: the host library's function of that name; the ABI
+            // ignores arguments it does not take.
+            let f = unsafe { std::mem::transmute::<usize, extern "C" fn(u64, u64, u64) -> u64>(f) };
+            let result = f(a, b, c);
+            static LAST: Mutex<(u64, u64)> = Mutex::new((u64::MAX, u64::MAX));
+            if let Ok(mut last) = LAST.lock() {
+                if *last != (a, result) {
+                    *last = (a, result);
+                    eprintln!("cs2metal: {}({a:#x}) returned {result:#x}", $name);
+                }
+            }
+            result
+        }
+    };
+}
+
+changed!(changed_window_from_id, "SDL_GetWindowFromID");
+changed!(changed_window_id, "SDL_GetWindowID");
+changed!(changed_mouse_focus, "SDL_GetMouseFocus");
+changed!(changed_grabbed_window, "SDL_GetGrabbedWindow");
+changed!(changed_window_flags, "SDL_GetWindowFlags");
+
+named!(named_relative_mouse, "SDL_SetWindowRelativeMouseMode");
+named!(named_mouse_grab, "SDL_SetWindowMouseGrab");
+named!(named_start_text, "SDL_StartTextInput");
+named!(named_stop_text, "SDL_StopTextInput");
+named!(named_raise_window, "SDL_RaiseWindow");
+named!(named_show_cursor, "SDL_ShowCursor");
+named!(named_hide_cursor, "SDL_HideCursor");
+
+/// `SDL_SetHint(name, value)`, traced.
+extern "C" fn traced_set_hint(name: *const c_char, value: *const c_char) -> bool {
+    let f = real("SDL_SetHint");
+    if f == 0 {
+        return false;
+    }
+    let text = |p: *const c_char| {
+        if p.is_null() {
+            "null".to_owned()
+        } else {
+            // SAFETY: the guest passes C strings.
+            unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned()
+        }
+    };
+    eprintln!("cs2metal: SDL_SetHint({}, {})", text(name), text(value));
+    // SAFETY: the host library's SDL_SetHint.
+    let f = unsafe {
+        std::mem::transmute::<usize, extern "C" fn(*const c_char, *const c_char) -> bool>(f)
+    };
+    f(name, value)
+}
+
+/// `SDL_GetKeyboardFocus()`, traced: each change of the window that has it.
+extern "C" fn traced_keyboard_focus() -> u64 {
+    let f = real("SDL_GetKeyboardFocus");
+    if f == 0 {
+        return 0;
+    }
+    // SAFETY: the host library's SDL_GetKeyboardFocus.
+    let f = unsafe { std::mem::transmute::<usize, extern "C" fn() -> u64>(f) };
+    let window = f();
+    static LAST: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(u64::MAX);
+    if LAST.swap(window, std::sync::atomic::Ordering::Relaxed) != window {
+        eprintln!("cs2metal: SDL_GetKeyboardFocus is now {window:#x}");
+    }
+    window
 }
 
 // --- Clipboard ---------------------------------------------------------------------
@@ -618,6 +907,7 @@ extern "C" fn create_window_with_properties(props: u32) -> u64 {
     // SAFETY: the host library's SDL_CreateWindowWithProperties.
     let f: extern "C" fn(u32) -> u64 = unsafe { std::mem::transmute(f) };
     let window = f(props);
+    WINDOW.store(window, std::sync::atomic::Ordering::Relaxed);
     let raise = real("SDL_RaiseWindow");
     if window != 0 && raise != 0 {
         // SAFETY: the host library's SDL_RaiseWindow, on the window just made.
@@ -723,6 +1013,23 @@ fn wrapper(name: &[u8]) -> Option<u64> {
         b"SDL_SetClipboardData" => set_clipboard_data as *const (),
         b"SDL_OpenAudioDeviceStream" => open_audio_device_stream as *const (),
         b"SDL_DestroyAudioStream" => destroy_audio_stream as *const (),
+        b"SDL_PollEvent" if tracing() => traced_poll_event as *const (),
+        b"SDL_WaitEventTimeout" if tracing() => traced_wait_event_timeout as *const (),
+        b"SDL_PeepEvents" if tracing() => traced_peep_events as *const (),
+        b"SDL_GetWindowFromID" if tracing() => changed_window_from_id as *const (),
+        b"SDL_GetWindowID" if tracing() => changed_window_id as *const (),
+        b"SDL_GetMouseFocus" if tracing() => changed_mouse_focus as *const (),
+        b"SDL_GetGrabbedWindow" if tracing() => changed_grabbed_window as *const (),
+        b"SDL_GetWindowFlags" if tracing() => changed_window_flags as *const (),
+        b"SDL_SetWindowRelativeMouseMode" if tracing() => named_relative_mouse as *const (),
+        b"SDL_SetWindowMouseGrab" if tracing() => named_mouse_grab as *const (),
+        b"SDL_StartTextInput" if tracing() => named_start_text as *const (),
+        b"SDL_StopTextInput" if tracing() => named_stop_text as *const (),
+        b"SDL_RaiseWindow" if tracing() => named_raise_window as *const (),
+        b"SDL_ShowCursor" if tracing() => named_show_cursor as *const (),
+        b"SDL_HideCursor" if tracing() => named_hide_cursor as *const (),
+        b"SDL_SetHint" if tracing() => traced_set_hint as *const (),
+        b"SDL_GetKeyboardFocus" if tracing() => traced_keyboard_focus as *const (),
         b"SDL_PutAudioStreamData" if tracing() => put_audio_stream_data as *const (),
         b"SDL_ClearAudioStream" if tracing() => counted_clear as *const (),
         b"SDL_FlushAudioStream" if tracing() => counted_flush as *const (),
