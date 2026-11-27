@@ -127,6 +127,11 @@ pub(crate) fn resolve<'a>(
     {
         return Ok(Cow::Owned(shim));
     }
+    if how == Use::Read {
+        if let Some(kernel) = crate::procfs::synthesize(path.to_bytes()) {
+            return Ok(Cow::Owned(kernel));
+        }
+    }
     let Some(overlay) = OVERLAY.get() else {
         return Ok(Cow::Borrowed(path));
     };

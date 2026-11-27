@@ -2,7 +2,7 @@
 //! pipes and events, time and sleep, memory, process information, and signals
 //! sent to itself. `None` means the number is not handled here.
 
-use std::ffi::c_char;
+use std::ffi::{CStr, c_char};
 
 use cs2metal_loader::SyscallFrame;
 
@@ -351,6 +351,13 @@ pub(crate) fn answer(f: &SyscallFrame) -> Option<i64> {
                 ))),
                 (Err(e), _) | (_, Err(e)) => e,
             },
+            267 if a1 != 0
+                && CStr::from_ptr(a1 as *const c_char)
+                    .to_bytes()
+                    .starts_with(b"/proc/") =>
+            {
+                crate::syscall::readlink(a1, a2, a3)
+            }
             267 => match host_path(a1, dirfd(a0 as i64), Use::Read) {
                 Ok(p) => result(libc::readlinkat(
                     dirfd(a0 as i64),

@@ -15,6 +15,7 @@ mod mmap;
 mod more;
 mod net;
 mod paths;
+mod procfs;
 mod sdl;
 mod steam;
 mod syscall;
@@ -220,6 +221,14 @@ pub fn exec(launch: &Launch) -> Result<Infallible, Error> {
     }
     if let Some(overlay) = &launch.overlay {
         paths::set_overlay(overlay.clone());
+    }
+    if let Ok(mut cmdline) = procfs::CMDLINE.lock() {
+        for arg in std::iter::once(launch.program.to_string_lossy().into_owned())
+            .chain(launch.args.iter().cloned())
+        {
+            cmdline.extend_from_slice(arg.as_bytes());
+            cmdline.push(0);
+        }
     }
     if let Ok(mut exe) = syscall::EXE.lock() {
         *exe = launch.program.to_string_lossy().into_owned();

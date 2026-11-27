@@ -153,12 +153,20 @@ fn uname(out: u64) -> i64 {
     0
 }
 
-fn readlink(path: u64, buf: u64, size: u64) -> i64 {
+/// Whether a guest path names this process's `/proc` executable link.
+fn is_own_exe(path: &[u8]) -> bool {
+    let pid = std::process::id().to_string();
+    path == b"/proc/self/exe"
+        || path == b"/proc/thread-self/exe"
+        || path == format!("/proc/{pid}/exe").as_bytes()
+}
+
+pub(crate) fn readlink(path: u64, buf: u64, size: u64) -> i64 {
     // SAFETY: the guest passes a path string.
     let Some(path) = (unsafe { guest_str(path) }) else {
         return EFAULT;
     };
-    if path.to_bytes() == b"/proc/self/exe" {
+    if is_own_exe(path.to_bytes()) {
         let exe = EXE.lock().map(|e| e.clone()).unwrap_or_default();
         let n = exe.len().min(size as usize);
         // SAFETY: the guest passed a buffer of `size` bytes.
