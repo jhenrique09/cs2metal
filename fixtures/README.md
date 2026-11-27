@@ -29,9 +29,11 @@ the binaries to `target/fixtures/` and checks them against `SHA256SUMS`.
 `--update` rewrites `expected/` and `SHA256SUMS` after a deliberate change.
 
 `CS2METAL_BUILD_HOST` is an ssh destination, ideally an alias from `~/.ssh/config`,
-for an x86-64 Linux machine with Docker. It never goes into the repository. On
-27 November 2026 the remote path ran on a Debian 13 virtual machine. The local,
-emulated path has not been run yet.
+for an x86-64 Linux machine with Docker. It never goes into the repository. The
+script says which path it takes. On 27 November 2026 both ran, a Debian 13 x86-64
+virtual machine natively and OrbStack's Docker emulating linux/amd64 on the Mac.
+Their builds are byte-identical, and every fixture gives its expected output on
+both.
 
 ## Why the binaries are not tracked
 

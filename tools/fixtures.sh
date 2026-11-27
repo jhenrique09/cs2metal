@@ -19,6 +19,11 @@ host="${CS2METAL_BUILD_HOST:-}"
 # One container run: $1 is the mount mode of the fixture tree (":ro" or ""), the
 # rest is the command. Builds and runs have no network.
 if [ -n "$host" ]; then
+    echo "fixtures: building on the x86-64 host named by CS2METAL_BUILD_HOST"
+else
+    echo "fixtures: building with the local Docker, emulating linux/amd64"
+fi
+if [ -n "$host" ]; then
     work="cs2metal-fixtures"
     in_image() {
         ssh -o BatchMode=yes "$host" "docker run --rm --network none -u \$(id -u):\$(id -g) \
