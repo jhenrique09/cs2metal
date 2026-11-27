@@ -74,8 +74,13 @@ explicitly before every commit.
 - [ ] **Owner action:** install the Vulkan SDK for macOS and record `vulkaninfo` for
   each driver (roadmap step A6).
 
-Gate: the inventory answers Q-1 to Q-5, and the M2 to M3 scope below is revised to
-match the real import list.
+- [ ] `cs2metal tls scan` (roadmap step B5): `fs` accesses by kind, unwind-table
+  coverage of executable bytes, uncovered `fs` prefixes, decoder failures, and TLS
+  models per module.
+
+Gate (Gate 0 of the [roadmap](ROADMAP.md), with probes H-2 and F1): the inventory
+and the code scan answer Q-1 to Q-5 and measure T-001's coverage on the real modules,
+and the M2 to M3 scope below is revised to match.
 
 ### M2: the loader, on the project's own fixtures
 
@@ -91,9 +96,13 @@ match the real import list.
 Gate: the fixtures print their expected output, including from several threads, and
 the T-001 counters match an independent count of `fs` prefixes in their code.
 
-### M3: the glibc ABI layer
+### M3: the libc route
 
-- [ ] The symbols the M1 inventory lists for the first boot path, by family.
+- [ ] Bake-off on the fixtures between the own glibc ABI layer, the runtime's real
+  glibc with system calls translated, and glibc built from source with a host
+  backend (roadmap step C3). Choose one from measurements (Gate 1).
+- [ ] The symbols the M1 inventory lists for the first boot path, by family, for
+  the chosen route.
 - [ ] Layout translation for every type that differs, with a test per type.
 - [ ] pthread objects with glibc sizes and lazy host objects; neutral locks on
   `__ulock_wait` and `__ulock_wake`, measured against libSystem's.
@@ -107,7 +116,10 @@ pass with the guest libstdc++ and libgcc_s.
 - [ ] `cs2` starts with the integrity guard passing and reaches the engine's own
   initialization logs, with every unresolved import named.
 
-Gate: the boot reaches the first SDL or Vulkan call.
+- [ ] Boot as a dedicated server with the empty render system (roadmap step C5).
+
+Gate: the boot reaches the first SDL or Vulkan call, and the dedicated server loads a
+map and keeps running for ten minutes.
 
 ### M5: SDL3 substitution
 

@@ -32,6 +32,12 @@ the pointer guard. TLS variables sit at negative offsets from the thread pointer
 
 Option 1, under these conditions:
 
+- **Coverage first.** The decision is accepted only after `cs2metal tls scan` (roadmap
+  step B5) has measured, on the real modules, how many executable bytes the unwind
+  tables cover and how many `fs` prefixes lie outside them.
+- **Discover, never hard-code.** The host TSD block is found at run time by matching
+  the words `gs` addresses, as the probe and Native VIctory do; the offset measured
+  on one machine (`pthread_self() + 0xE0`) is an observation, not an ABI.
 - **Decode, never scan.** A byte-pattern search for `0x64` would corrupt data and
   instruction operands. Prefixes are found with a full x86-64 decoder over the
   function ranges that `.eh_frame` describes. Bytes outside known function ranges are

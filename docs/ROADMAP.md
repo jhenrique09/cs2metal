@@ -32,19 +32,37 @@ the engineering.
 
 ```
 A  Put the pieces on the Mac        owner, today          no code needed
-B  Know the build                   tools exist (B1-B2)   answers Q-1 to Q-5
+B  Know the build                   tools exist (B1-B3)   answers Q-1 to Q-5, T-001 coverage
    ├─ D1  Steam probes              needs A2              answers H-1, H-2
    └─ F1  Vulkan driver probe       needs A6              answers Q-6
-C  A host that runs Linux code      the bulk of the work  loader, glibc layer
+   ═══ Gate 0: evidence before the runtime investment ═══
+C  A host that runs Linux code      the bulk of the work  fixtures, loader, libc route
+   ═══ Gate 1: the libc route, chosen by measurement ═══
+   └─ C5  Dedicated server boot     after C4              no window, no Vulkan
 D  Steam bridge                     after C               SteamAPI_Init succeeds
 E  A window                         after C               SDL3 on macOS
 F  Vulkan device and first frame    after E               ← the goal of this roadmap
 ```
 
-The three questions most able to stop the project (does Steam on macOS serve app
-730, does an x86-64 Vulkan driver work under Rosetta, what kind of executable is
-`cs2`) are answered by B2, D1, and F1, before most of the code is written. Do those
-first.
+The questions most able to stop the project (does Steam on macOS serve app 730, does
+an x86-64 Vulkan driver work under Rosetta, what kind of executable is `cs2`, can the
+`fs` rewrite be proven safe on the real modules) are answered by B2, B5, D1, and F1,
+before most of the code is written. Do those first.
+
+The two gates come from the
+[route and effort review](ROUTE_AND_EFFORT_REVIEW_2026-11-27.md):
+
+- **Gate 0** passes when B2, B3, B5, D1 (H-2), and F1 have run on the real build and
+  none of them invalidates the design. Until then nothing beyond fixtures and the
+  loader core is built.
+- **Gate 1** passes when the libc route of C3 is chosen from measurements on the
+  fixtures. The architecture and the effort budget are revised around it before the
+  route is built out.
+
+Stop or reassess, rather than reaching for a fallback, if no Vulkan driver can
+present under Rosetta (F1), if the `fs` rewrite cannot be proven safe on the real
+modules (B5), or if no libc route runs the C++ fixtures reliably (C3). Each fallback
+named in this document is a project of its own and needs its own decision record.
 
 Sizes are relative: S (hours), M (days), L (weeks), XL (more).
 
@@ -244,6 +262,27 @@ only the files whose size or modification time changed.
 State: built on 27 November 2026. Hashing runs at about 430 MB/s per file on the
 development machine, on all cores at once.
 
+### B5. Code scan: `fs` accesses, unwind coverage, TLS models (to build, M)
+
+`cs2metal tls scan <file-or-dir>` decodes, read-only, every function that the
+`.eh_frame` unwind tables describe in each executable segment, and reports per
+module:
+
+- every `fs`-prefixed instruction, classified as a thread-pointer load (`fs:0`), a
+  stack-guard read (`fs:0x28`), a pointer-guard read (`fs:0x30`), a local-exec access
+  (`fs` with a constant offset), or an initial-exec access (`fs` with a register);
+- how many executable bytes the unwind tables cover, and the `fs` prefixes found in
+  the bytes they do not cover, which T-001 could not rewrite safely;
+- decoder failures inside covered ranges;
+- the TLS models in use, from the dynamic relocations (global- and local-dynamic,
+  TLS descriptors, initial-exec in shared objects) and from the code (local-exec and
+  link-time initial-exec, which leave no dynamic relocation).
+
+That is the per-module answer to Q-5 that the inventory alone cannot give, and the
+coverage measurement the [TLS decision](TLS_UNDER_ROSETTA_DECISION.md) needs before
+it can be accepted. Detailed reports stay in `reports/`; tracked documents record
+counts only.
+
 ### B4. Static Vulkan scan (to build, S)
 
 `cs2metal vulkan scan <game_dir>` lists the Vulkan extension and command names inside
@@ -269,11 +308,25 @@ TLS, `dlopen`; the GS bridge with neutral and host thunks; transform T-001 behin
 flag. Gate: every fixture prints its expected output, and the
 [TLS decision](TLS_UNDER_ROSETTA_DECISION.md) is accepted or revised.
 
-### C3. The glibc ABI layer, first slice (to build, XL)
+### C3. The libc route, chosen by measurement, then its first slice (to build, M then XL)
 
-`cs2metal-glibc`: the symbols the B2 inventory lists, ordered by what the fixtures
-and then the engine's boot path call first. Gate: the C++ fixtures pass with the
-guest libstdc++ and libgcc_s from A5.
+Before the large investment, a time-boxed bake-off runs the same C and C++ fixtures
+through three ways of giving the guest a C library:
+
+| Route | Summary | What to measure |
+| --- | --- | --- |
+| Own glibc ABI layer | `cs2metal-glibc` in Rust: the symbols the inventory lists, with layout translation | Symbols needed, layout translations, host crossings per fixture |
+| The runtime's real glibc, system calls translated | Load glibc 2.31 from the sniper runtime unchanged and translate Linux system calls | Each `syscall` instruction is 2 bytes and cannot become a 5-byte call in place, so this needs a second transform or a trap per system call; measure that cost under Rosetta |
+| glibc built from source with a host backend | Compile glibc 2.31 (LGPL) with system calls that call into the host, so no binary patching of glibc | Build effort, how much of glibc's system call layer is centralized, crossings per fixture |
+
+The choice is not only about code size. With a real glibc, `malloc`, `memcpy`, and the
+fast paths of pthreads stay inside the guest and never pay the GS swap (about 520 ns
+per round trip); only system calls cross. With an own layer, every libc call crosses
+unless it is a neutral function. Count crossings per fixture for each route.
+
+Gate (Gate 1): one route chosen with the measurements recorded in a dated research
+document, then its first slice built until the C++ fixtures pass with the guest
+libstdc++ and libgcc_s from A5.
 
 ### C4. `cs2metal run` and the first engine boot (to build, M, then iterative)
 
@@ -295,6 +348,24 @@ The paths can also come from an ignored `cs2metal.local.toml`.
 From here the work is a loop: run, read which import or behavior stopped the boot,
 implement it, commit, run again. Gate: the engine's own log shows its Steam
 initialization attempt and its first SDL or Vulkan call.
+
+### C5. Boot as a dedicated server first (to build, M; after C4)
+
+The Linux build ships `librendersystemempty.so` beside `librendersystemvulkan.so`
+(CONFIRMED from the file names during the download). Source 2 runs its dedicated
+server from the same binaries with the empty render system, and Valve's CS2 server
+documentation starts it with `-dedicated` (INFERRED for this build; to be confirmed
+on the real files). A dedicated server needs no window, no SDL video, and no Vulkan:
+
+```bash
+target/x86_64-apple-darwin/release/cs2metal run --game-dir ~/cs2metal-kit/cs2-linux \
+  --runtime-dir ~/cs2metal-kit/sniper -- -dedicated -insecure +map de_dust2
+```
+
+It exercises the loader, the libc route, threads, the file system, physics, and
+networking, so it validates the whole CPU side before phases E and F, and decouples
+the boot from the Vulkan probe. Gate: the server loads a map and keeps running for
+ten minutes.
 
 ## Phase D: Steam
 
@@ -368,10 +439,12 @@ research prototype, by the [Rosetta horizon decision](ROSETTA_HORIZON_DECISION.m
 
 - **Owner, today:** A1 to A6, then B1, B3 (`baseline record`), and B2. Nothing else
   is blocked on anything.
-- **Build, in parallel with the downloads:** C1 and C2 need no game file.
+- **Build, in parallel with the downloads:** B5 runs on the sniper runtime's two
+  libraries before the game arrives; C1 and C2 need no game file.
 - **Probes, as soon as A2 and A6 are done:** D1 and F1. They are small, they are
   independent of the loader, and each can invalidate a design.
-- **Critical path:** B2 → C2 → C3 → C4 → (D2) → E1 → F2 → F3.
+- **Critical path:** B2 → B5 → Gate 0 → C2 → C3 (Gate 1) → C4 → C5 → (D2) → E1 →
+  F2 → F3.
 
 ## What can stop this roadmap
 
