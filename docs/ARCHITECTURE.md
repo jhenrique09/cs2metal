@@ -248,6 +248,7 @@ reports goes to standard error, which `run.sh` writes to the session's log.
 | `CS2METAL_SDL_TRACE=1` | The events the game takes, its input and audio calls, the guest code that made them, and each event pump or event read of 3 ms or more with what took the time ([SDL bridge](SDL_BRIDGE.md)) |
 | `CS2METAL_VULKAN_TRACE=1` | Counts of Vulkan calls, the pacing of presents every ten seconds, and each gap of a quarter second or more ([Vulkan bridge](VULKAN_BRIDGE.md)) |
 | `CS2METAL_SHADER_TRACE=1` | MoltenVK's own timings of each step of making a pipeline, of encoding command buffers, and of the GPU, every 3000 frames ([Vulkan bridge](VULKAN_BRIDGE.md)) |
+| `CS2METAL_THREAD_TRACE=1` | Every ten seconds, the process's busiest threads by name with their share of one processor, the rest summed, and the processors busy in all. The process reads its own threads' processor time from the kernel, so nothing is stopped and nothing looks in from outside: it can stay on through a whole match. The game names its threads with `prctl(PR_SET_NAME)`, which the host applies to the macOS thread whether the trace is on or not, so a `sample` of the process shows the same names |
 | `CS2METAL_STEAM_TRACE=1` | The Steam client interfaces the game asks for, by version ([Steam bridge](STEAM_BRIDGE_DESIGN.md)) |
 
 Always on:

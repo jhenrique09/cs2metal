@@ -362,8 +362,9 @@ pub(crate) fn answer(f: &SyscallFrame) -> Option<i64> {
                 }
             }
             140 => 20, // getpriority: nice 0, as the kernel encodes it
-            141 | 144 | 149 | 150 | 157 | 160 | 203 => 0, // setpriority, sched_setscheduler,
-            // mlock, munlock, prctl, setrlimit, sched_setaffinity: accepted as hints
+            141 | 144 | 149 | 150 | 160 | 203 => 0, // setpriority, sched_setscheduler,
+            // mlock, munlock, setrlimit, sched_setaffinity: accepted as hints
+            157 => crate::threads::prctl(a0, a1),
             146 => 99, // sched_get_priority_max
             147 => 0,  // sched_get_priority_min
             201 => {

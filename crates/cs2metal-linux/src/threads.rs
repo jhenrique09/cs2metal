@@ -34,6 +34,45 @@ thread_local! {
     static CLONED: Cell<bool> = const { Cell::new(false) };
 }
 
+/// `prctl`'s option for naming the calling thread, and the longest name with its
+/// terminator.
+const PR_SET_NAME: u64 = 15;
+const NAME_BYTES: usize = 16;
+
+/// Gives the calling host thread `name`, as far as its first NUL, so that macOS's
+/// tools and the thread trace ([`crate::thread_trace`]) show the game's threads
+/// by the names the game gave them.
+pub(crate) fn name_this_thread(name: &[u8]) {
+    let end = name.iter().position(|&b| b == 0).unwrap_or(name.len());
+    if let Ok(name) = std::ffi::CString::new(&name[..end]) {
+        // SAFETY: a NUL-terminated string; macOS names the calling thread.
+        unsafe { libc::pthread_setname_np(name.as_ptr()) };
+    }
+}
+
+/// `prctl(option, arg)`. `PR_SET_NAME` names the calling thread, which is how the
+/// game names its own; every other option is accepted as a hint.
+///
+/// # Safety
+///
+/// For `PR_SET_NAME`, `arg` must point at a NUL-terminated string or at 16
+/// readable bytes.
+pub(crate) unsafe fn prctl(option: u64, arg: u64) -> i64 {
+    if option == PR_SET_NAME && arg != 0 {
+        let mut name = [0u8; NAME_BYTES];
+        // Linux keeps 15 bytes; read no further than the terminator.
+        for (i, byte) in name.iter_mut().take(NAME_BYTES - 1).enumerate() {
+            // SAFETY: the caller's contract.
+            *byte = unsafe { std::ptr::read((arg as usize + i) as *const u8) };
+            if *byte == 0 {
+                break;
+            }
+        }
+        name_this_thread(&name);
+    }
+    0
+}
+
 pub(crate) fn gettid() -> i64 {
     TID.with(|t| {
         if t.get() == 0 {
@@ -543,6 +582,29 @@ fn current_block() -> Option<*const HostBlock> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn prctl_names_the_calling_thread() {
+        std::thread::spawn(|| {
+            // Longer than Linux keeps: the name is cut at 15 bytes.
+            let name = b"RenderThreadOfTheGame\0";
+            // SAFETY: a NUL-terminated string.
+            assert_eq!(unsafe { prctl(PR_SET_NAME, name.as_ptr() as u64) }, 0);
+            let mut got = [0 as libc::c_char; 64];
+            // SAFETY: the buffer and its length.
+            unsafe { libc::pthread_getname_np(libc::pthread_self(), got.as_mut_ptr(), got.len()) };
+            // SAFETY: pthread_getname_np terminates what it writes.
+            let got = unsafe { std::ffi::CStr::from_ptr(got.as_ptr()) };
+            assert_eq!(got.to_bytes(), b"RenderThreadOfT");
+            // Another option, and no name at all, change nothing.
+            // SAFETY: neither reads memory.
+            assert_eq!(unsafe { prctl(4, 0) }, 0);
+            // SAFETY: a null name is not read.
+            assert_eq!(unsafe { prctl(PR_SET_NAME, 0) }, 0);
+        })
+        .join()
+        .expect("thread");
+    }
     use std::sync::atomic::AtomicBool;
     use std::time::{Duration, Instant};
 

@@ -49,6 +49,7 @@
 #   CS2METAL_KEEP_INTRO=1            play the opening movie
 #   CS2METAL_SHADER_TRACE=1          time the compiling of shaders and pipelines: MoltenVK
 #                                    reports each step's count and time every 3000 frames
+#   CS2METAL_THREAD_TRACE=1          every ten seconds, the busiest threads by name
 #   CS2METAL_*                       diagnostics, passed through (e.g. CS2METAL_SDL_TRACE=1)
 set -euo pipefail
 

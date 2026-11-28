@@ -27,6 +27,7 @@ mod record;
 mod sdl;
 mod steam;
 mod syscall;
+mod thread_trace;
 mod threads;
 mod translate;
 mod vdso;
@@ -245,9 +246,11 @@ pub fn exec(launch: &Launch) -> Result<Infallible, Error> {
     fault::install();
     fault::watch_thread();
     threads::raise_this_thread();
+    threads::name_this_thread(b"main");
     syscall::raise_open_files();
     set_syscall_handler(syscall::handle);
     fast::start();
+    thread_trace::start();
 
     // ld.so runs as the program and loads the real one: ld.so --library-path
     // DIRS PROGRAM ARGS.
