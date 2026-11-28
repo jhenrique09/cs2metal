@@ -9,8 +9,9 @@ with MoltenVK 1.4.2 from LunarG's SDK 1.4.363.1. Every boot was offline, with
 `-insecure`, under the authorization in `AGENTS.md`. It answers the entry
 "KosmicKrisp built from Mesa source for x86-64" of [future work](FUTURE_WORK.md),
 and with it the first condition of the
-[native driver process study](NATIVE_VULKAN_PROCESS_STUDY_2026-11-27.md). Not
-edited after the fact.
+[native driver process study](NATIVE_VULKAN_PROCESS_STUDY_2026-11-27.md). Edited
+once, the same day: the first version put KosmicKrisp's gap down to GPU work,
+which the measurements do not show.
 
 ## Questions
 
@@ -94,11 +95,11 @@ at a time, as MoltenVK's first start did.
 
 - **KosmicKrisp presents 44% fewer frames.** Its faster boot is below MoltenVK's
   slowest. (CONFIRMED for this scene and size)
-- **The GPU does more a frame on it.** In a boot after its shaders were built the
-  GPU was busy 71 to 74% at 43 frames a second. On MoltenVK, in the owner's match
-  of the same day at 1920 by 1080, it was busy 84 to 92% at about 97. One thread of
-  the game was busy 97%. (INFERRED from utilization at two sizes; no GPU timings
-  were taken on KosmicKrisp)
+- **What limits it was not found.** In a boot after its shaders were built, one
+  thread of the process was busy 97% and the GPU 71 to 74%, at 43 frames a second.
+  A GPU a quarter idle beside a thread that never rests points at the thread, and
+  no sample was taken to say whether it runs the game's code or the driver's.
+  (OPEN)
 - **MTLEvent semaphores do not help.** Their mean is below the default and their
   processor time a present above it. The single pair of the same day, 93.9 against
   101.9, was inside the scatter that this series shows: 73 to 97 for one
@@ -108,10 +109,11 @@ at a time, as MoltenVK's first start did.
 
 - **KosmicKrisp works in the host**, with one fix in Mesa, and the host is the
   sturdier for the other.
-- **It is not faster here.** The gap is mostly GPU work, which no native driver
-  process would remove: Rosetta translates the processor's code, not the GPU's.
-  The native process study's case for a second driver rested on KosmicKrisp being
-  better, so it stays a study, and a less likely one.
+- **It is not faster here**, and why is open. If the busy thread runs the driver,
+  translated by Rosetta, a native driver process would speed up exactly that, and
+  the [study](NATIVE_VULKAN_PROCESS_STUDY_2026-11-27.md)'s case is stronger than
+  before; if it runs the game's code, it is not. A sample of a boot on KosmicKrisp
+  answers it.
 - **MoltenVK's defaults stay.**
 - **The occlusion query fix belongs upstream.** It is a KosmicKrisp limit that any
   application making large pools meets, Rosetta or not. Reporting it is the
@@ -119,6 +121,7 @@ at a time, as MoltenVK's first start did.
 
 ## Open
 
+- Which thread is busy 97% on KosmicKrisp, and in whose code.
 - Whether KosmicKrisp's gap closes with its newer work: the measured commit is one
   day's.
 - Whether occlusion results stay right over a long session: entries are kept until
