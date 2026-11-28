@@ -63,11 +63,13 @@ fn tracing() -> bool {
 /// Whether the trace counts calls: it does unless `CS2METAL_VULKAN_TRACE` is
 /// `pacing`, which keeps the reports on presents and leaves every other entry
 /// as it is without a trace, for measuring the pace itself.
+fn counting_value(value: Option<&std::ffi::OsStr>) -> bool {
+    value.is_some_and(|value| value != "pacing")
+}
+
 fn counting() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| {
-        std::env::var_os("CS2METAL_VULKAN_TRACE").is_some_and(|value| value != "pacing")
-    })
+    *ON.get_or_init(|| counting_value(std::env::var_os("CS2METAL_VULKAN_TRACE").as_deref()))
 }
 
 fn host_entry(f: u64) -> u64 {
@@ -159,7 +161,7 @@ fn guest_function(name: &CStr, host: u64) -> u64 {
         real.store(host, std::sync::atomic::Ordering::Release);
     }
     let adjusted = wrapper(name.to_bytes());
-    let traced = (tracing() && host != 0)
+    let traced = (counting() && host != 0)
         .then(|| traced_wrapper(name.to_bytes(), host))
         .flatten();
     let bridged = match traced.or(adjusted) {
@@ -1137,6 +1139,13 @@ pub(crate) fn bind(table: u64, names: u64, count: u64) -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_full_tracing_counts_calls_and_results() {
+        assert!(!counting_value(None));
+        assert!(!counting_value(Some(std::ffi::OsStr::new("pacing"))));
+        assert!(counting_value(Some(std::ffi::OsStr::new("1"))));
+    }
 
     #[test]
     fn a_pacing_report_names_the_stutters() {
