@@ -1,0 +1,104 @@
+diff --git a/src/kosmickrisp/vulkan/kk_device.c b/src/kosmickrisp/vulkan/kk_device.c
+index 17e9f10..87c3889 100644
+--- a/src/kosmickrisp/vulkan/kk_device.c
++++ b/src/kosmickrisp/vulkan/kk_device.c
+@@ -322,6 +322,13 @@ kk_CreateDevice(VkPhysicalDevice physicalDevice,
+                                 KK_MAX_OCCLUSION_QUERIES);
+    if (result != VK_SUCCESS)
+       goto fail_meta;
++   if (kk_query_table_add(dev, &dev->occlusion_queries, 0, &dev->oq_unused) !=
++          VK_SUCCESS ||
++       kk_query_table_add(dev, &dev->occlusion_queries, 0, &dev->oq_spill) !=
++          VK_SUCCESS) {
++      result = VK_ERROR_INITIALIZATION_FAILED;
++      goto fail_query_table;
++   }
+ 
+    result = kk_init_sampler_heap(dev, &dev->samplers);
+    if (result != VK_SUCCESS)
+diff --git a/src/kosmickrisp/vulkan/kk_device.h b/src/kosmickrisp/vulkan/kk_device.h
+index 5c964f9..a572061 100644
+--- a/src/kosmickrisp/vulkan/kk_device.h
++++ b/src/kosmickrisp/vulkan/kk_device.h
+@@ -89,6 +89,13 @@ struct kk_device {
+ 
+    struct kk_sampler_heap samplers;
+    struct kk_query_table occlusion_queries;
++   /* Occlusion queries take a table entry when first begun, not when their pool
++    * is made: a game made pools of 16384 queries and three of them filled the
++    * table, which Metal's 256 KiB visibility buffer limit caps at 32768.
++    * Queries not begun yet read oq_unused, which stays zero; queries begun when
++    * the table is full count into oq_spill. */
++   uint32_t oq_unused;
++   uint32_t oq_spill;
+ 
+    /* Track all heaps the user allocated so we can set them all as resident when
+     * recording as required by Metal. */
+diff --git a/src/kosmickrisp/vulkan/kk_query_pool.c b/src/kosmickrisp/vulkan/kk_query_pool.c
+index 104d73d..2dbb269 100644
+--- a/src/kosmickrisp/vulkan/kk_query_pool.c
++++ b/src/kosmickrisp/vulkan/kk_query_pool.c
+@@ -180,22 +180,10 @@ kk_CreateQueryPool(VkDevice device, const VkQueryPoolCreateInfo *pCreateInfo,
+    if (kk_pool_is_oq(pool)) {
+       uint16_t *remap_index = kk_pool_index_ptr(pool);
+ 
+-      for (unsigned i = 0; i < pool->vk.query_count; ++i) {
+-         uint64_t zero = 0;
+-         unsigned index;
+-
+-         VkResult result =
+-            kk_query_table_add(dev, &dev->occlusion_queries, zero, &index);
+-
+-         if (result != VK_SUCCESS) {
+-            kk_DestroyQueryPool(device, kk_query_pool_to_handle(pool),
+-                                pAllocator);
+-            return vk_error(dev, VK_ERROR_OUT_OF_DEVICE_MEMORY);
+-         }
+-
+-         /* We increment as we go so we can clean up properly if we run out */
+-         remap_index[pool->oq.queries++] = index;
+-      }
++      /* Entries are taken when a query is first begun (kk_CmdBeginQuery). */
++      for (unsigned i = 0; i < pool->vk.query_count; ++i)
++         remap_index[i] = dev->oq_unused;
++      pool->oq.queries = pool->vk.query_count;
+    } else if (kk_pool_is_ts(pool)) {
+       if (!pdev->settings.gpu_capture_enabled) {
+          /* Timestamps are sampled into a Metal counter heap (one entry per query)
+@@ -234,7 +222,8 @@ kk_DestroyQueryPool(VkDevice device, VkQueryPool queryPool,
+    if (kk_pool_is_oq(pool)) {
+       uint16_t *remap_index = kk_pool_index_ptr(pool);
+       for (unsigned i = 0; i < pool->oq.queries; ++i) {
+-         kk_query_table_remove(dev, &dev->occlusion_queries, remap_index[i]);
++         if (remap_index[i] != dev->oq_unused && remap_index[i] != dev->oq_spill)
++            kk_query_table_remove(dev, &dev->occlusion_queries, remap_index[i]);
+       }
+    } else if (kk_pool_is_ts(pool)) {
+       if (pool->ts.heap)
+@@ -438,11 +427,26 @@ kk_CmdBeginQuery(VkCommandBuffer commandBuffer, VkQueryPool queryPool,
+ {
+    VK_FROM_HANDLE(kk_cmd_buffer, cmd, commandBuffer);
+    VK_FROM_HANDLE(kk_query_pool, pool, queryPool);
++   struct kk_device *dev = kk_cmd_buffer_device(cmd);
+    cmd->state.gfx.occlusion.mode = flags & VK_QUERY_CONTROL_PRECISE_BIT
+                                       ? MTL_VISIBILITY_RESULT_MODE_COUNTING
+                                       : MTL_VISIBILITY_RESULT_MODE_BOOLEAN;
+    cmd->state.gfx.dirty |= KK_DIRTY_OCCLUSION;
+    uint16_t *remap_index = kk_pool_index_ptr(pool);
++   if (kk_pool_is_oq(pool) && remap_index[query] == dev->oq_unused) {
++      uint32_t index;
++      if (kk_query_table_add(dev, &dev->occlusion_queries, 0, &index) ==
++          VK_SUCCESS) {
++         remap_index[query] = index;
++      } else {
++         static bool noted;
++         if (!noted) {
++            noted = true;
++            fprintf(stderr, "kk: occlusion query table full; further queries share one entry\n");
++         }
++         remap_index[query] = dev->oq_spill;
++      }
++   }
+    cmd->state.gfx.occlusion.index = remap_index[query];
+ }
+ 
