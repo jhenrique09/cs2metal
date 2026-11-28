@@ -22,6 +22,11 @@ installs the library and a manifest of its own into
 | `x86_64.ini` | Meson's cross file for x86-64 on an arm64 Mac |
 | `lazy-occlusion.patch` | Occlusion queries take an entry of KosmicKrisp's device-wide table when first begun, not when their pool is made. The game makes pools of 16,384, and the third failed against the table's 32,768 entries, which Metal's 256 KiB visibility buffer limit caps |
 
+Switching drivers also makes the game set its video settings again by itself: it
+keeps the graphics device's id with them, and the two drivers report different
+ids. Copy `cs2_video.txt` aside first, from the Steam client's user data for the
+game, and put it back afterwards.
+
 Switching drivers makes the game replace its pipeline cache under
 `~/cs2-metal/data/cs2-linux.overlay/game/csgo/shadercache/vulkan`; copy it aside
 first to keep MoltenVK's. The first start on KosmicKrisp stops for seconds at a time

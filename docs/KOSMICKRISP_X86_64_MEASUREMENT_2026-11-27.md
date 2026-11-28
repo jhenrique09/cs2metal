@@ -3,15 +3,17 @@
 ## Status
 
 Measured on 27 November 2026 on the owner's Apple M1 Max, macOS 27.2.1, the game
-build 26879581, at 2560 by 1440 with the owner's video settings. KosmicKrisp was
+build 26879581, at 2560 by 1440 with the video settings the game chose for itself
+(see Method). KosmicKrisp was
 built from upstream Mesa at commit `c51e70c3ff` with one local change, and compared
 with MoltenVK 1.4.2 from LunarG's SDK 1.4.363.1. Every boot was offline, with
 `-insecure`, under the authorization in `AGENTS.md`. It answers the entry
 "KosmicKrisp built from Mesa source for x86-64" of [future work](FUTURE_WORK.md),
 and with it the first condition of the
 [native driver process study](NATIVE_VULKAN_PROCESS_STUDY_2026-11-27.md). Edited
-once, the same day: the first version put KosmicKrisp's gap down to GPU work,
-which the measurements do not show.
+twice, the same day: the first version put KosmicKrisp's gap down to GPU work,
+which the measurements do not show, and said the boots ran with the owner's video
+settings, which they did not.
 
 ## Questions
 
@@ -40,6 +42,16 @@ which the measurements do not show.
 - **The game's pipeline cache.** The game keeps one, and replaced its 93 MB of
   MoltenVK entries with 172 KB of KosmicKrisp's at the first boot on the other
   driver. Each driver's copy was put back before each of its boots.
+
+- **The video settings were the game's, not the owner's.** The game keeps the
+  graphics device's id with its video settings and, when the id differs, sets them
+  again by itself and marks the file so. MoltenVK and KosmicKrisp report different
+  device ids, so every switch did that, and the series ran both drivers on the
+  same settings: 2560 by 1440, two-sample multisampling in place of CMAA2, and
+  dynamic shadows on, heavier than the owner's 1920 by 1080 with CMAA2. This was
+  found afterwards, from the file; the owner's settings were put back. The
+  drivers are compared like for like; the figures are not those of the
+  [earlier series](PERFORMANCE_HOST_CHANGES_2026-11-27.md).
 
 ## Results
 
