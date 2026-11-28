@@ -432,6 +432,145 @@ extern "C" fn timed_pump_events() {
     note_slow_events("SDL_PumpEvents", &[("host SDL", start.elapsed())]);
 }
 
+// --- Events off the main thread ----------------------------------------------------
+//
+// AppKit hands out the application's events on the main thread only, and ends the
+// process when asked for them from another. On Linux SDL lets any thread pump, and
+// the game does: when a present is late it waits for it on another thread and
+// pumps there meanwhile (seen with KosmicKrisp on a first start, 27 November 2026,
+// when its shaders were being compiled). Off the main thread the four functions
+// that pump hand out what is already in SDL's queue instead, which SDL_PeepEvents
+// reads without asking AppKit; the main thread's next pump takes AppKit's events.
+
+/// SDL's event range, all of it, and SDL_PeepEvents' actions.
+const EVENT_FIRST: u32 = 0;
+const EVENT_LAST: u32 = 0xFFFF;
+const PEEK_EVENTS: u32 = 1;
+const GET_EVENTS: u32 = 2;
+
+/// Whether this is the process's main thread, the only one AppKit gives events on.
+fn on_main_thread() -> bool {
+    // SAFETY: pthread_main_np has no preconditions.
+    unsafe { libc::pthread_main_np() != 0 }
+}
+
+/// The host function `name`, looked up once into `slot`.
+fn cached(slot: &std::sync::atomic::AtomicUsize, name: &str) -> usize {
+    let mut f = slot.load(std::sync::atomic::Ordering::Relaxed);
+    if f == 0 {
+        f = real(name);
+        slot.store(f, std::sync::atomic::Ordering::Relaxed);
+    }
+    f
+}
+
+/// Says once that the game pumps events off the main thread.
+fn note_off_main_thread(what: &str) {
+    static NOTED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if !NOTED.swap(true, std::sync::atomic::Ordering::Relaxed) {
+        eprintln!(
+            "cs2metal: {what} on a thread other than the main one: it gets the events \
+             already queued, and AppKit's wait for the main thread"
+        );
+    }
+}
+
+/// Takes one queued event into `event`, or with `event` null tells whether there
+/// is one, without pumping.
+fn take_queued(event: u64) -> bool {
+    static PEEP: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let f = cached(&PEEP, "SDL_PeepEvents");
+    if f == 0 {
+        return false;
+    }
+    // SAFETY: the host library's SDL_PeepEvents, which with a null buffer counts.
+    let f =
+        unsafe { std::mem::transmute::<usize, extern "C" fn(u64, i32, u32, u32, u32) -> i32>(f) };
+    if event == 0 {
+        f(0, 0, PEEK_EVENTS, EVENT_FIRST, EVENT_LAST) > 0
+    } else {
+        f(event, 1, GET_EVENTS, EVENT_FIRST, EVENT_LAST) > 0
+    }
+}
+
+/// Waits up to `timeout` milliseconds, or for ever if it is negative, for a queued
+/// event, without pumping.
+fn wait_queued(event: u64, timeout: i32) -> bool {
+    let start = std::time::Instant::now();
+    let limit = u64::try_from(timeout)
+        .ok()
+        .map(std::time::Duration::from_millis);
+    loop {
+        if take_queued(event) {
+            return true;
+        }
+        if limit.is_some_and(|limit| start.elapsed() >= limit) {
+            return false;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(1));
+    }
+}
+
+/// `SDL_PumpEvents()`.
+extern "C" fn pump_events() {
+    if !on_main_thread() {
+        note_off_main_thread("SDL_PumpEvents");
+        return;
+    }
+    if tracing() {
+        return timed_pump_events();
+    }
+    static REAL: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let f = cached(&REAL, "SDL_PumpEvents");
+    if f != 0 {
+        // SAFETY: the host library's SDL_PumpEvents.
+        unsafe { std::mem::transmute::<usize, extern "C" fn()>(f)() };
+    }
+}
+
+/// `SDL_PollEvent(event)`.
+extern "C" fn poll_event(event: u64) -> bool {
+    if !on_main_thread() {
+        note_off_main_thread("SDL_PollEvent");
+        return take_queued(event);
+    }
+    if tracing() {
+        return traced_poll_event(event);
+    }
+    static REAL: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let f = cached(&REAL, "SDL_PollEvent");
+    // SAFETY: the host library's SDL_PollEvent.
+    f != 0 && unsafe { std::mem::transmute::<usize, extern "C" fn(u64) -> bool>(f)(event) }
+}
+
+/// `SDL_WaitEventTimeout(event, timeout)`.
+extern "C" fn wait_event_timeout(event: u64, timeout: i32) -> bool {
+    if !on_main_thread() {
+        note_off_main_thread("SDL_WaitEventTimeout");
+        return wait_queued(event, timeout);
+    }
+    if tracing() {
+        return traced_wait_event_timeout(event, timeout);
+    }
+    let f = real("SDL_WaitEventTimeout");
+    // SAFETY: the host library's SDL_WaitEventTimeout.
+    f != 0
+        && unsafe {
+            std::mem::transmute::<usize, extern "C" fn(u64, i32) -> bool>(f)(event, timeout)
+        }
+}
+
+/// `SDL_WaitEvent(event)`.
+extern "C" fn wait_event(event: u64) -> bool {
+    if !on_main_thread() {
+        note_off_main_thread("SDL_WaitEvent");
+        return wait_queued(event, -1);
+    }
+    let f = real("SDL_WaitEvent");
+    // SAFETY: the host library's SDL_WaitEvent.
+    f != 0 && unsafe { std::mem::transmute::<usize, extern "C" fn(u64) -> bool>(f)(event) }
+}
+
 /// `SDL_PeepEvents(events, count, action, min, max)`: the game takes its
 /// events with it, on its main thread, several times a frame. That is where
 /// the window is looked at again for [`fit_screen`], a few times a second, so
@@ -1644,9 +1783,10 @@ fn wrapper(name: &[u8]) -> Option<u64> {
         b"SDL_SetClipboardData" => set_clipboard_data as *const (),
         b"SDL_OpenAudioDeviceStream" => open_audio_device_stream as *const (),
         b"SDL_DestroyAudioStream" => destroy_audio_stream as *const (),
-        b"SDL_PollEvent" if tracing() => traced_poll_event as *const (),
-        b"SDL_PumpEvents" if tracing() => timed_pump_events as *const (),
-        b"SDL_WaitEventTimeout" if tracing() => traced_wait_event_timeout as *const (),
+        b"SDL_PollEvent" => poll_event as *const (),
+        b"SDL_PumpEvents" => pump_events as *const (),
+        b"SDL_WaitEventTimeout" => wait_event_timeout as *const (),
+        b"SDL_WaitEvent" => wait_event as *const (),
         b"SDL_GetWindowFromID" if tracing() => changed_window_from_id as *const (),
         b"SDL_GetWindowID" if tracing() => changed_window_id as *const (),
         b"SDL_GetMouseFocus" if tracing() => changed_mouse_focus as *const (),
@@ -1973,6 +2113,11 @@ mod tests {
                 set_number_property as *const () as usize,
             ),
             ("SDL_PushEvent", push_event as *const () as usize),
+            ("SDL_PumpEvents", fake_pump as *const () as usize),
+            ("SDL_PollEvent", fake_pump_one as *const () as usize),
+            ("SDL_WaitEventTimeout", fake_pump_one as *const () as usize),
+            ("SDL_WaitEvent", fake_pump_one as *const () as usize),
+            ("SDL_PeepEvents", fake_peep as *const () as usize),
             ("SDL_GetAudioStreamDevice", device as *const () as usize),
             ("SDL_AudioDevicePaused", device_paused as *const () as usize),
             ("SDL_LockAudioStream", lock as *const () as usize),
@@ -2053,6 +2198,70 @@ mod tests {
         true
     }
 
+    /// Host SDL's pumping functions, counted; and its queue.
+    #[cfg(target_arch = "x86_64")]
+    static EVENT_PUMPS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    #[cfg(target_arch = "x86_64")]
+    static QUEUE: Mutex<Vec<u32>> = Mutex::new(Vec::new());
+
+    #[cfg(target_arch = "x86_64")]
+    extern "C" fn fake_pump() {
+        EVENT_PUMPS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    extern "C" fn fake_pump_one(_event: u64) -> bool {
+        fake_pump();
+        false
+    }
+
+    #[cfg(target_arch = "x86_64")]
+    extern "C" fn fake_peep(events: u64, count: i32, action: u32, min: u32, max: u32) -> i32 {
+        assert_eq!((min, max), (EVENT_FIRST, EVENT_LAST));
+        let mut queue = QUEUE.lock().expect("queue");
+        match action {
+            PEEK_EVENTS if events == 0 => i32::try_from(queue.len()).expect("count"),
+            GET_EVENTS if count == 1 && !queue.is_empty() => {
+                // SAFETY: the test's event, 128 bytes.
+                unsafe { std::ptr::write_unaligned(events as *mut u32, queue.remove(0)) };
+                1
+            }
+            _ => 0,
+        }
+    }
+
+    /// Off the main thread nothing pumps: the game gets the events already
+    /// queued, and a wait ends at its timeout. AppKit would end the process.
+    #[cfg(target_arch = "x86_64")]
+    #[test]
+    fn events_off_the_main_thread_come_from_the_queue_only() {
+        install_fakes();
+        // The test harness may run a test on the main thread; this one must not.
+        std::thread::spawn(|| {
+            *QUEUE.lock().expect("queue") = vec![0x300, 0x301];
+            let pumps = EVENT_PUMPS.load(std::sync::atomic::Ordering::Relaxed);
+            let mut event = [0u32; 32];
+            let at = std::ptr::from_mut(&mut event) as u64;
+            pump_events();
+            assert!(poll_event(0), "an event is queued");
+            assert!(poll_event(at));
+            assert_eq!(event[0], 0x300);
+            assert!(wait_event(at));
+            assert_eq!(event[0], 0x301);
+            assert!(!poll_event(at));
+            let start = std::time::Instant::now();
+            assert!(!wait_event_timeout(at, 5));
+            assert!(start.elapsed() >= std::time::Duration::from_millis(5));
+            assert!(!wait_event_timeout(at, 0));
+            assert_eq!(
+                EVENT_PUMPS.load(std::sync::atomic::Ordering::Relaxed),
+                pumps
+            );
+        })
+        .join()
+        .expect("off the main thread");
+    }
+
     /// The game finds its window again by the X11 window number, which host
     /// SDL does not set on a Mac.
     #[cfg(target_arch = "x86_64")]
@@ -2128,6 +2337,10 @@ mod tests {
             "SDL_Vulkan_LoadLibrary",
             "SDL_MinimizeWindow",
             "SDL_PeepEvents",
+            "SDL_PumpEvents",
+            "SDL_PollEvent",
+            "SDL_WaitEvent",
+            "SDL_WaitEventTimeout",
             "SDL_SetWindowSize",
             "SDL_SetWindowPosition",
             "SDL_SetWindowBordered",
